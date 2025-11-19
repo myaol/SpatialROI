@@ -1,0 +1,50 @@
+Package: SpatialScope
+Title: Interactive Spatial Transcriptomics Analysis
+Version: 0.1.0
+Authors@R: 
+    c(
+      person("Aodong", "Qiu", email = "qiuaodon@pitt.edu", role = c("aut", "cre")),
+      person("Mengyao", "Lu", email = "lumenyao@pitt.edu", role = "aut", comment = c("Co-first author"))
+    )
+Description: An interactive R package with a browser-based interface that enables 
+    spatial visualization and analysis directly from processed Seurat objects. Users 
+    can interactively select regions of interest (ROI), visualize gene expression 
+    patterns, and perform downstream analyses including gene set scoring, spatial 
+    clustering, and differential expression analysis.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Depends: 
+    R (>= 4.0.0)
+Imports:
+    shiny,
+    leaflet,
+    leaflet.extras,
+    sf,
+    dplyr,
+    Seurat,
+    ggplot2,
+    shinyjs,
+    htmlwidgets,
+    sp,
+    base64enc,
+    viridis,
+    RColorBrewer,
+    GSVA,
+    gridExtra,
+    patchwork,
+    reshape2,
+    tibble,
+    tidyr,
+    magrittr,
+    ggforce,
+    grid,
+    methods
+Suggests:
+    spacexr,
+    Matrix,
+    spdep,
+    testthat (>= 3.0.0)
+LazyData: false
+Config/testthat/edition: 3
