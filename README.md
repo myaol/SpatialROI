@@ -2,7 +2,7 @@
 
 SpatialScope is designed to facilitate the ROI-specific exploration, visualization, and analysis of spatial transcriptomics data.
 
-**SpatialScope** is an interactive R package with a browser-based interface that enables spatial visualization and analysis directly from processed Seurat objects. Users can interactively select regions of interest (ROI), visualize gene expression patterns, and perform downstream analyses such as cell-type signature scoring, clustering, and differential expression analysis. In addition to the GUI, SpatialScope also provides a set of modular functions for scripted workflows, enabling customized analyses. Usage examples for these functions are provided in the `vignettes_functions.Rmd`(vignettes_functions.Rmd).
+**SpatialScope** is an interactive R package with a browser-based interface that enables spatial visualization and analysis directly from processed Seurat objects. Users can interactively select regions of interest (ROI), visualize gene expression patterns, and perform downstream analyses such as cell-type signature scoring, clustering, and differential expression analysis. In addition to the GUI, SpatialScope also provides a set of modular functions for scripted workflows, enabling customized analyses. Usage examples for these functions are provided in the [Function Workflow Vignette](vignettes_functions.Rmd).
 
 SpatialScope can be accessed via a public demo hosted by the University of Pittsburgh: [https://shiny.crc.pitt.edu/spatial_api/](https://shiny.crc.pitt.edu/spatial_api/).
 
