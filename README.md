@@ -2,7 +2,7 @@
 
 SpatialScope is designed to facilitate the ROI-specific exploration, visualization, and analysis of spatial transcriptomics data.
 
-**SpatialScope** is an interactive R package with a browser-based interface that enables spatial visualization and analysis directly from processed Seurat objects. Users can interactively select regions of interest (ROI), visualize gene expression patterns, and perform downstream analyses such as cell-type signature scoring, clustering, and differential expression analysis.
+**SpatialScope** is an interactive R package with a browser-based interface that enables spatial visualization and analysis directly from processed Seurat objects. Users can interactively select regions of interest (ROI), visualize gene expression patterns, and perform downstream analyses such as cell-type signature scoring, clustering, and differential expression analysis. In addition to the GUI, SpatialScope also provides a set of modular functions for scripted workflows, enabling customized analyses. Usage examples for these functions are provided in the `vignettes_functions.Rmd`(vignettes_functions.Rmd).
 
 SpatialScope can be accessed via a public demo hosted by the University of Pittsburgh: [https://shiny.crc.pitt.edu/spatial_api/](https://shiny.crc.pitt.edu/spatial_api/).
 
@@ -43,8 +43,8 @@ run_SpatialScope("demo")
 
 ```r
 library(SpatialScope)
-my_data <- readRDS("path/to/your_seurat.rds")
-run_spatial_selector(my_data, sample_name = "MyExperiment", show_image = TRUE)
+Seurat_object <- readRDS("path/to/your_seurat.rds")
+run_spatial_selector(Seurat_object, sample_name = "MyExperiment", show_image = TRUE)
 ```
 
 Or upload through the app interface in the Visualization section using the 📤 **Upload Data** panel.
@@ -63,17 +63,17 @@ If you only need to select spots from a region of interest without launching the
 library(SpatialScope)
 
 # Load your Seurat object
-my_data <- readRDS("path/to/your_seurat.rds")
+Seurat_object <- readRDS("path/to/your_seurat.rds")
 
 # Launch interactive ROI selector
-selected_spots <- draw_ROI(my_data, sample_name = "MyExperiment")
+selected_spots <- draw_ROI(Seurat_object, sample_name = "MyExperiment")
 
 # The function returns a vector of spot IDs
 print(selected_spots)
 length(selected_spots)
 
 # Use the selected spots for downstream analysis
-subset_data <- subset(my_data, cells = selected_spots)
+subset_data <- subset(Seurat_object, cells = selected_spots)
 ```
 
 This function supports multiple ROI selections and returns a vector of spot IDs, ideal for custom downstream workflows.
@@ -124,7 +124,7 @@ If you use SpatialScope in your research, please cite:
   title = {SpatialScope: An Interactive R Shiny Package for Manual Region-Based Analysis of Spatial Transcriptomics Data},
   author = {Qiu, Aodong and Lu, Mengyao and Lu, Xinghua and Xu, Min and Chen, Lujia},
   journal = {Journal of Open Source Software},
-  year = {2025},
+  year = {X},
   volume = {X},
   number = {X},
   pages = {XXXX},

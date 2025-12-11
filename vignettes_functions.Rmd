@@ -1,0 +1,325 @@
+---
+title: "SpatialScope Function-Level Analysis Guide"
+author: "Mengyao Lu"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{SpatialScope Function-Level Guide}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 5
+)
+```
+
+# Introduction
+
+SpatialScope is an interactive platform for region-specific analysis and visualization of spatial transcriptomics data. While the full GUI can be launched using `run_SpatialScope()`, the package also provides a set of individual functions that enable reproducible, programmatic workflows.
+
+This vignette demonstrates how these core functions can be combined to build customized spatial analysis pipelines.
+
+## Installation
+```{r eval=FALSE}
+# Install from GitHub
+devtools::install_github("myaol/SpatialScope")
+```
+
+## Load Library
+```{r eval=FALSE}
+library(SpatialScope)
+```
+
+# Region of Interest (ROI) Selection
+
+## Interactive ROI Drawing
+
+The `draw_ROI()` function enables interactive selection of spatial regions:
+```{r eval=FALSE}
+# Launch interactive ROI selection tool
+Seurat_object <- readRDS("path/to/your_seurat.rds")
+
+# Or load the built-in demo dataset
+demo_path <- system.file("extdata", "example_visium.rds", package = "SpatialScope")
+Seurat_object <- readRDS(demo_path)
+
+# Draw ROI and return selected spot IDs
+selected_spots <- draw_ROI(Seurat_object, sample_name = "MyExperiment")
+
+# Create subset of data based on selected region
+subset_Seurat_object <- subset(Seurat_object, cells = selected_spots)
+```
+
+**Key Features:**
+- Click-and-drag to select regions of interest
+- Returns spot IDs for downstream analysis
+- Enables region-specific analyses
+
+# Interactive Viewers
+
+SpatialScope provides several interactive viewers that can be launched with single function calls:
+
+## Gene Viewer
+
+Visualize individual gene expression patterns across spatial data:
+```{r eval=FALSE}
+# Launch interactive gene viewer
+run_gene_viewer(Seurat_object)
+
+# Or use on subset data
+run_gene_viewer(subset_Seurat_object)
+```
+
+The gene viewer provides:
+- Interactive spatial visualization of gene expression
+- Search functionality for genes in the dataset
+- Real-time expression pattern exploration
+
+## Gene Set Scoring Viewer
+
+Analyze gene set enrichment patterns spatially:
+```{r eval=FALSE}
+# Launch gene set scoring interface
+run_gene_set_viewer(Seurat_object, sample_name = "MyExperiment")
+
+# Or use on subset data
+run_gene_set_viewer(subset_Seurat_object, sample_name = "MyExperiment")
+```
+
+This interface allows to:
+- Define custom gene sets
+- Score spots based on gene set expression
+- Visualize gene set enrichment spatially
+
+# Spatial Clustering Analysis
+
+## Running Spatial Clustering
+
+The `run_spatial_clustering()` function performs graph-based clustering on spatial data:
+```{r eval=FALSE}
+# Perform spatial clustering on ROI
+result <- run_spatial_clustering(
+  subset_Seurat_object,
+  resolution = 0.8,    # Range: 0.3-2.0 (higher = more clusters)
+  n_pcs = 30,          # Range: 5-50 (number of principal components)
+  run_umap = TRUE,
+  plot_umap = TRUE,
+  plot_spatial = TRUE,
+  verbose = TRUE
+)
+```
+
+
+**Outputs:**
+The function generates:
+- UMAP visualization 
+- Spatial cluster plot 
+- Console output with clustering statistics
+- Modified Seurat object with cluster assignments
+
+## Extracting Cluster Information
+```{r eval=FALSE}
+# Extract spot IDs for specific cluster(s)
+cluster_0_spots <- get_cluster_spots(result, clusters = "0")
+
+# Extract multiple clusters
+cluster_0_1_spots <- get_cluster_spots(result, clusters = c("0", "1"))
+```
+
+# Differential Expression Analysis
+
+## Running DEG Analysis
+
+The `run_deg_analysis()` function identifies differentially expressed genes between spatial regions:
+```{r eval=FALSE}
+# Compare selected region vs rest of tissue
+degs <- run_deg_analysis(
+  Seurat_object,
+  group1_spots = selected_spots,
+  comparison = "group1_vs_rest"
+)
+```
+
+**Comparison Types:**
+- `"group1_vs_rest"`: Compare selected spots against all other spots
+- `"group1_vs_group2"`: Compare two specific groups 
+
+## Examining DEG Results
+```{r eval=FALSE}
+# View top 20 differentially expressed genes
+head(degs, 20)
+
+# Check all available columns
+colnames(degs)
+# Returns: gene, avg_log2FC, pct.1, pct.2, p_val, p_val_adj
+
+# Save complete results
+write.csv(degs, "DEG_results_all.csv", row.names = FALSE)
+```
+
+**Result Columns:**
+- `gene`: Gene name
+- `avg_log2FC`: Average log2 fold change
+- `pct.1`: Percentage of cells expressing in group 1
+- `pct.2`: Percentage of cells expressing in group 2
+- `p_val`: Unadjusted p-value
+- `p_val_adj`: Adjusted p-value (for multiple testing)
+
+Results are automatically ranked by adjusted p-value.
+
+# Feature Comparison and Visualization
+
+## Group Comparison Plot
+
+Compare expression patterns between two spatial groups:
+```{r eval=FALSE}
+# Compare gene expression between two groups
+plot_group_comparison(
+  Seurat_object,
+  feature = "PIGR",                          # Gene name
+  feature_type = "gene",                      # "gene", "metadata", or "geneset"
+  group1_spots = group1_spots,
+  group2_spots = group2_spots,
+  comparison = "group1_vs_group2",            # Comparison type
+  stat_test = "wilcox"                        # Statistical test
+)
+```
+
+**Parameters:**
+- `feature`: Name of feature to compare (gene, metadata column, or gene set)
+- `feature_type`: Type of feature
+  - `"gene"`: Individual gene expression
+  - `"metadata"`: Metadata column (e.g., cluster assignment)
+  - `"geneset"`: Gene set score
+- `comparison`: Comparison type
+  - `"group1_vs_group2"`: Compare two specific groups
+  - `"group1_vs_rest"`: Compare group 1 against all other spots
+  - `"group2_vs_rest"`: Compare group 2 against all other spots
+- `stat_test`: Statistical test to use
+  - `"wilcox"`: Wilcoxon rank-sum test (non-parametric)
+  - `"ttest"`: Student's t-test (parametric)
+
+## Feature-to-Feature Comparison
+
+Compare two features within a specific group of spots:
+```{r eval=FALSE}
+# Compare expression of two genes within selected region
+plot_feature_violin_comparison(
+  Seurat_object,
+  feature1 = "PIGR",
+  feature2 = "MT1G",
+  feature1_type = "gene",
+  feature2_type = "gene",
+  spots_to_use = group1_spots,                # Analyze within specific spots
+  stat_test = "wilcox"                        # Wilcoxon test
+)
+```
+
+**Use Cases:**
+- Compare expression of two genes in same region
+- Compare two gene set scores
+- Identify co-expression patterns
+
+# Complete Analysis Workflow Example
+
+Here's a complete analysis combining multiple SpatialScope functions:
+```{r eval=FALSE}
+library(SpatialScope)
+
+# Step 1: Load data
+Seurat_object <- readRDS("path/to/Seurat_object.rds")
+
+# Step 2: Select regions of interest
+selected_spots_group1 <- draw_ROI(Seurat_object, sample_name = "MyExperiment")
+selected_spots_group2 <- draw_ROI(Seurat_object, sample_name = "MyExperiment")
+
+# Step 3: Subset data for each group
+group1_subset_Seurat_object <- subset(Seurat_object, cells = selected_spots_group1)
+group2_subset_Seurat_object <- subset(Seurat_object, cells = selected_spots_group2)
+
+# Step 4: Explore genes interactively
+# Can explore the whole dataset
+run_gene_viewer(Seurat_object)
+
+# Or explore specific subset
+run_gene_viewer(group1_subset_Seurat_object)
+
+# Step 5: Score gene sets
+# On whole dataset
+run_gene_set_viewer(Seurat_object, sample_name = "Whole_Analysis")
+
+# Or on subset
+run_gene_set_viewer(group1_subset_Seurat_object, sample_name = "Group1_Analysis")
+
+# Step 6: Cluster group1 region
+group1_cluster <- run_spatial_clustering(
+  group1_subset_Seurat_object,
+  resolution = 0.8,
+  n_pcs = 30,
+  run_umap = TRUE,
+  plot_umap = TRUE,
+  plot_spatial = TRUE
+)
+
+# Step 7: Extract specific cluster
+cluster_2_spots <- get_cluster_spots(group1_cluster, clusters = "2")
+
+# Step 8: Find differentially expressed genes
+# Compare group1 vs group2
+group1_vs_group2_degs <- run_deg_analysis(
+  Seurat_object,
+  group1_spots = selected_spots_group1,
+  group2_spots = selected_spots_group2,
+  comparison = "group1_vs_group2"
+)
+
+# Compare specific cluster vs rest of group1
+cluster_2_degs <- run_deg_analysis(
+  group1_subset_Seurat_object,
+  group1_spots = cluster_2_spots,
+  comparison = "group1_vs_rest"
+)
+
+# Step 9: Visualize top gene between groups
+top_gene <- group1_vs_group2_degs$gene[1]
+plot_group_comparison(
+  Seurat_object,
+  feature = top_gene,
+  feature_type = "gene",
+  group1_spots = selected_spots_group1,
+  group2_spots = selected_spots_group2,
+  comparison = "group1_vs_group2",
+  stat_test = "wilcox"
+)
+
+# Step 10: Compare two marker genes (feature-to-feature comparison)
+plot_feature_violin_comparison(
+  Seurat_object,
+  feature1 = group1_vs_group2_degs$gene[1],
+  feature2 = group1_vs_group2_degs$gene[2],
+  feature1_type = "gene",
+  feature2_type = "gene",
+  spots_to_use = selected_spots_group1,
+  stat_test = "wilcox"
+)
+
+# Step 11: Export results
+write.csv(group1_vs_group2_degs, "group1_vs_group2_DEGs.csv", row.names = FALSE)
+write.csv(cluster_2_degs, "cluster_2_DEGs.csv", row.names = FALSE)
+```
+
+
+
+## Data Management
+```{r eval=FALSE}
+# Save spot selections for reproducibility
+saveRDS(selected_spots_group1, "group1_roi_spots.rds")
+saveRDS(selected_spots_group2, "group2_roi_spots.rds")
+
+# Save clustered object
+saveRDS(group1_cluster, "group1_clustered_data.rds")
+```
+
