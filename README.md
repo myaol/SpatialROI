@@ -95,7 +95,8 @@ This function supports multiple ROI selections and returns a vector of spot IDs,
 ## Documentation
 
 📚 **Detailed tutorials and examples:**
-- [User Guide Vignette](vignettes.Rmd) - Step-by-step walkthrough
+- [User Guide Vignette](vignettes.Rmd) - GUI Step-by-step walkthrough
+- [Function Workflow Vignette](vignettes_functions.Rmd) - Scripted workflow
 - [JOSS Paper](JOSS/paper.md) - Comprehensive methodology and features
 
 📹 **Video Tutorial:** A video tutorial will be available soon.[YouTube Quickstart](https://youtu.be/**)
