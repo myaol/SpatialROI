@@ -2,7 +2,8 @@
 % Please edit documentation in R/SpatialScope_DEG_analysis.R
 \name{run_deg_analysis}
 \alias{run_deg_analysis}
-\title{Perform Differential Expression Analysis on Spatial Transcriptomics Data}
+\title{Perform Differential Expression Analysis on Spatial Transcriptomics Data
+(with optional Moran's I spatial autocorrelation)}
 \usage{
 run_deg_analysis(
   seurat_obj,
@@ -15,7 +16,11 @@ run_deg_analysis(
   top_n = 50,
   export_csv = FALSE,
   output_file = "DEG_results.csv",
-  verbose = TRUE
+  verbose = TRUE,
+  add_morans = FALSE,
+  morans_top_n = 100,
+  morans_k = 6,
+  morans_subset_obj = TRUE
 )
 }
 \arguments{
@@ -27,14 +32,15 @@ run_deg_analysis(
 
 \item{comparison}{Character; type of comparison:
 \itemize{
-\item "group1_vs_rest": Group 1 vs all other spots
-\item "group2_vs_rest": Group 2 vs all other spots
-\item "group1_vs_group2": Group 1 vs Group 2 only
+\item "group1_vs_rest":    Group 1 vs all other spots
+\item "group2_vs_rest":    Group 2 vs all other spots
+\item "group1_vs_group2":  Group 1 vs Group 2 only
 \item "clusters_in_group1": Find markers for each cluster in Group 1
 \item "clusters_in_group2": Find markers for each cluster in Group 2
 }}
 
-\item{clustering_result}{Optional; result from run_spatial_clustering() (required for cluster comparisons)}
+\item{clustering_result}{Optional; result from run_spatial_clustering()
+(required for cluster comparisons)}
 
 \item{min_pct}{Numeric; minimum fraction of cells expressing gene (default: 0.1)}
 
@@ -47,37 +53,77 @@ run_deg_analysis(
 \item{output_file}{Character; filename for CSV export (default: "DEG_results.csv")}
 
 \item{verbose}{Logical; whether to print progress messages (default: TRUE)}
+
+\item{add_morans}{Logical; compute Moran's I for top DEGs (default: FALSE)
+High Moran_I = spatially clustered gene ("blob" pattern)
+Low  Moran_I = randomly scattered gene ("salt-and-pepper")}
+
+\item{morans_top_n}{Integer; number of top DEGs to score with Moran's I (default: 100)
+Capped to avoid excessive compute time on large datasets}
+
+\item{morans_k}{Integer; number of nearest neighbours for spatial weight matrix (default: 6)
+k=6 approximates the hexagonal Visium grid neighbourhood; use 4-8}
+
+\item{morans_subset_obj}{Logical; compute Moran's I only on the relevant group spots
+rather than the full object (default: TRUE — recommended for ROI analyses)
+Rationale: global coordinates dilute local ROI structure}
 }
 \value{
 A data frame of DEG results with columns:
 \itemize{
-\item gene: Gene name
-\item avg_log2FC: Average log2 fold change
-\item pct.1: Percentage of cells expressing in group 1
-\item pct.2: Percentage of cells expressing in group 2
-\item p_val: P-value
-\item p_val_adj: Adjusted p-value
+\item gene:          Gene name
+\item avg_log2FC:    Average log2 fold change
+\item pct.1:         Percentage of cells expressing in group 1
+\item pct.2:         Percentage of cells expressing in group 2
+\item p_val:         P-value
+\item p_val_adj:     Adjusted p-value
 }
+If add_morans = TRUE, additional columns:
+\itemize{
+\item Moran_I:       Moran's I statistic (-1 to 1; >0 = spatially clustered)
+\item Moran_pval:    Permutation-based p-value (999 simulations)
+\item Moran_padj:    BH-corrected p-value across all tested genes
+\item spatial_sig:   Logical; TRUE if Moran_padj < 0.05
+\item spatial_class: Factor; "Spatially structured" / "Not structured" / "Not tested"
+}
+Sort order when Moran's I is included:
+Primary p_val_adj ascending, secondary Moran_I descending.
+Top rows = strong DEGs that are ALSO spatially structured (highest priority for pathology).
 }
 \description{
 Run differential expression analysis comparing different groups of spots.
 Supports group vs rest, group vs group, and cluster-based comparisons.
+Optionally computes Moran's I spatial autocorrelation (permutation-based,
+BH-corrected) for the top DEGs to identify spatially structured genes.
 }
 \examples{
 \dontrun{
-# Example 1: Group 1 vs Rest
+# Example 1: Group 1 vs Rest (no Moran's I)
 group1_spots <- draw_ROI(seurat_obj, sample_name = "Group1")
 degs <- run_deg_analysis(seurat_obj, group1_spots, comparison = "group1_vs_rest")
 
-# Example 2: Group 1 vs Group 2
+# Example 2: Group 1 vs Rest WITH Moran's I
+degs <- run_deg_analysis(seurat_obj, group1_spots,
+                         comparison   = "group1_vs_rest",
+                         add_morans   = TRUE,
+                         morans_top_n = 100,
+                         morans_k     = 6)
+
+# Example 3: Group 1 vs Group 2
 group1 <- draw_ROI(seurat_obj, sample_name = "Group1")
 group2 <- draw_ROI(seurat_obj, sample_name = "Group2")
-degs <- run_deg_analysis(seurat_obj, group1, group2, comparison = "group1_vs_group2")
+degs <- run_deg_analysis(seurat_obj, group1, group2,
+                         comparison = "group1_vs_group2",
+                         add_morans = TRUE)
 
-# Example 3: Clusters within Group 1
+# Example 4: Clusters within Group 1
 result <- run_spatial_clustering(subset_obj)
 degs <- run_deg_analysis(seurat_obj, group1_spots,
-                         comparison = "clusters_in_group1",
+                         comparison        = "clusters_in_group1",
                          clustering_result = result)
+
+# Filter high-priority genes (significant DEG + spatially structured)
+high_priority <- degs[degs$p_val_adj < 0.05 &
+                      degs$spatial_class == "Spatially structured", ]
 }
 }

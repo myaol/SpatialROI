@@ -11,7 +11,7 @@ get_top_degs(deg_results, n = 20, by = "p_val_adj", direction = "both")
 
 \item{n}{Integer; number of top genes to return (default: 20)}
 
-\item{by}{Character; column to sort by - "p_val_adj", "log2FC", or "both" (default: "p_val_adj")}
+\item{by}{Character; "p_val_adj", "log2FC", or "both" (default: "p_val_adj")}
 
 \item{direction}{Character; "up", "down", or "both" (default: "both")}
 }

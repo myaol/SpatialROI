@@ -17,11 +17,11 @@ visualize_degs(
 
 \item{plot_type}{Character; "volcano" or "bar" (default: "volcano")}
 
-\item{top_n}{Integer; for bar plot, number of top genes to show (default: 20)}
+\item{top_n}{Integer; number of top genes for bar plot (default: 20)}
 
-\item{fc_threshold}{Numeric; log2 fold change threshold for coloring (default: 0.5)}
+\item{fc_threshold}{Numeric; log2FC threshold for colouring (default: 0.5)}
 
-\item{pval_threshold}{Numeric; -log10(p_val_adj) threshold for coloring (default: 1.3, i.e., p=0.05)}
+\item{pval_threshold}{Numeric; -log10(p_val_adj) threshold (default: 1.3, i.e. p=0.05)}
 }
 \description{
 Create volcano plot or bar plot of DEG results

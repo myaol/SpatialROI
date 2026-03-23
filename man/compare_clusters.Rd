@@ -21,9 +21,3 @@ Data frame of DEG results
 \description{
 Compare specific clusters from clustering results
 }
-\examples{
-\dontrun{
-result <- run_spatial_clustering(seurat_obj)
-degs <- compare_clusters(seurat_obj, result, cluster1 = "0", cluster2 = "1")
-}
-}

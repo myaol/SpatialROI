@@ -14,9 +14,9 @@ compare_subsets(
 \arguments{
 \item{subset1}{Seurat object for group 1}
 
-\item{subset2}{Seurat object for group 2}
+\item{subset2}{Seurat object for group 2 (optional)}
 
-\item{parent_seurat}{Optional; full Seurat object (if not provided, uses subset1)}
+\item{parent_seurat}{Full Seurat object (if not provided, uses subset1)}
 
 \item{comparison}{Character; "group1_vs_group2" or "group1_vs_rest" (default: "group1_vs_group2")}
 }
@@ -25,15 +25,4 @@ Data frame of DEG results
 }
 \description{
 Simplified wrapper for common DEG comparisons between two Seurat subsets
-}
-\examples{
-\dontrun{
-# Compare two ROI subsets
-roi1 <- draw_ROI(seurat_obj, sample_name = "ROI1")
-roi2 <- draw_ROI(seurat_obj, sample_name = "ROI2")
-subset1 <- subset(seurat_obj, cells = roi1)
-subset2 <- subset(seurat_obj, cells = roi2)
-
-degs <- compare_subsets(subset1, subset2, parent_seurat = seurat_obj)
-}
 }
