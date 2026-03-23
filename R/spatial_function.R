@@ -44,6 +44,9 @@
 #' @return A Shiny application object; launching the GUI as a side effect.
 #' @export
 
+future::plan("sequential")
+options(future.globals.maxSize = 2000 * 1024^2)
+
 run_spatial_selector <- function(seurat_input, sample_name = "sample", show_image = TRUE) {
 
   # Handle demo data
@@ -1254,8 +1257,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     # Increase file upload size limit (default is 5MB, set to 500MB)
     options(shiny.maxRequestSize = 500*1024^2)  # 500MB in bytes
     # ── Fix for Seurat FindMarkers future globals error ──
-    future::plan("sequential")
-    options(future.globals.maxSize = 2000 * 1024^2)
+
 
     # Hide initial loading screen after app is ready
     observe({
@@ -2772,6 +2774,9 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     ###1
     # DEG Analysis
     observeEvent(input$run_deg, {
+      # Force sequential IMMEDIATELY before FindMarkers is called
+      future::plan("sequential")
+
       g1 <- group1_spots()
       g2 <- group2_spots()
 
