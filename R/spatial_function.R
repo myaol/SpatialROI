@@ -2850,10 +2850,10 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                 listw_obj    <- spdep::nb2listw(spdep::knn2nb(knn_obj), style = "W", zero.policy = TRUE)
 
                 candidate_genes <- head(
-                  intersect(markers$gene, rownames(seurat_obj@assays$Spatial$data)), 100
+                  intersect(markers$gene, rownames(Seurat::GetAssayData(seurat_obj, assay = "Spatial", layer = "data"))), 100
                 )
                 expr_matrix <- as.matrix(
-                  seurat_obj@assays$Spatial$data[candidate_genes, rownames(coords), drop = FALSE]
+                  Seurat::GetAssayData(seurat_obj, assay = "Spatial", layer = "data")[candidate_genes, rownames(coords), drop = FALSE]
                 )
 
                 moran_results <- lapply(candidate_genes, function(gene) {
