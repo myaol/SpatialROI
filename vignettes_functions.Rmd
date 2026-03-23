@@ -43,7 +43,7 @@ The `draw_ROI()` function enables interactive selection of spatial regions:
 Seurat_object <- readRDS("path/to/your_seurat.rds")
 
 # Or load the built-in demo dataset
-demo_path <- system.file("extdata", "example_visium.rds", package = "SpatialScope")
+demo_path <- system.file("extdata", "example_visium.rds", package = "SpatialScopeDev")
 Seurat_object <- readRDS(demo_path)
 
 # Draw ROI and return selected spot IDs

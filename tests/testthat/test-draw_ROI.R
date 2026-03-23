@@ -3,6 +3,6 @@ test_that("draw_ROI function is available", {
 })
 
 test_that("demo data file exists", {
-  demo_file <- system.file("extdata", "example_visium.rds", package = "SpatialScope")
+  demo_file <- system.file("extdata", "example_visium.rds", package = "SpatialScopeDev")
   expect_true(nchar(demo_file) > 0)
 })

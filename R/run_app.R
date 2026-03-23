@@ -22,7 +22,7 @@ run_SpatialScope <- function(data_path = NULL, ...) {
 
   # Handle "demo" special case
   if (identical(data_path, "demo")) {
-    demo_file <- system.file("extdata", "example_visium.rds", package = "SpatialScope")
+    demo_file <- system.file("extdata", "example_visium.rds", package = "SpatialScopeDev")
     if (!file.exists(demo_file) || demo_file == "") {
       stop("Demo data not found. Please ensure example_visium.rds exists in inst/extdata.")
     }
@@ -30,7 +30,7 @@ run_SpatialScope <- function(data_path = NULL, ...) {
   }
 
   # Locate the app directory inside the package
-  appDir <- system.file("app", package = "SpatialScope")
+  appDir <- system.file("app", package = "SpatialScopeDev")
   if (appDir == "") {
     stop("Could not find app directory. Try reinstalling SpatialScope.", call. = FALSE)
   }

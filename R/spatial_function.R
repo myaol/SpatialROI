@@ -51,7 +51,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
   # Handle demo data
   if (is.character(seurat_input) && seurat_input == "demo") {
-    demo_file <- system.file("extdata", "example_visium.rds", package = "SpatialScope")  # ← Changed here
+    demo_file <- system.file("extdata", "example_visium.rds", package = "SpatialScopeDev")  # ← Changed here
 
     if (demo_file == "" || !file.exists(demo_file)) {
       stop("Demo data not found. Please ensure the package is installed correctly.\n",
