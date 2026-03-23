@@ -1,4 +1,3 @@
-# ---- Load dependencies ----
 library(shiny)
 library(shinyjs)
 library(leaflet)
@@ -12,15 +11,12 @@ library(viridis)
 library(Seurat)
 library(SpatialScopeDev)
 
-data_path <- getOption("SpatialScope.data_path", default = NULL)
+data_path <- getOption("SpatialScope.data_path", default = NULL)  # ← this must match run_SpatialScope
 
-# If data path provided, load and run directly
 if (!is.null(data_path) && file.exists(data_path)) {
   seurat_obj <- readRDS(data_path)
-  SpatialScope::run_spatial_selector(seurat_obj, basename(data_path), show_image = TRUE)
+  SpatialScopeDev::run_spatial_selector(seurat_obj, basename(data_path), show_image = TRUE)
 } else {
-  # Otherwise just run with default (you'd need example data in the package)
-  # Or show a simple loader UI
   ui <- fluidPage(
     shinyjs::useShinyjs(),
     titlePanel("Load your data"),
@@ -30,7 +26,7 @@ if (!is.null(data_path) && file.exists(data_path)) {
     observeEvent(input$file, {
       seurat_obj <- readRDS(input$file$datapath)
       stopApp()
-      SpatialScope::run_spatial_selector(seurat_obj, input$file$name)
+      SpatialScopeDev::run_spatial_selector(seurat_obj, input$file$name)
     })
   }
   shinyApp(ui, server)
