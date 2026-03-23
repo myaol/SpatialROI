@@ -47,6 +47,10 @@
 future::plan("sequential")
 options(future.globals.maxSize = 2000 * 1024^2)
 
+#' Run the SpatialScope Spatial Selector
+#' ...all your roxygen comments...
+#' @export
+#'
 run_spatial_selector <- function(seurat_input, sample_name = "sample", show_image = TRUE) {
 
   # Handle demo data
