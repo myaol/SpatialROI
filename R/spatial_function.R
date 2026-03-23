@@ -2973,7 +2973,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
         # Check if this is cluster-based analysis (has 'cluster' column)
         if ("cluster" %in% colnames(top_deg)) {
-          data.frame(
+          df <- data.frame(
             Cluster = top_deg$cluster,
             Gene = top_deg$gene,
             log2FC = round(top_deg$avg_log2FC, 3),
@@ -2982,12 +2982,25 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
             p_adj = format(top_deg$p_val_adj, scientific = TRUE, digits = 3)
           )
         } else {
-          data.frame(
-            Gene = top_deg$gene,
+          df <- data.frame(
+            Gene   = top_deg$gene,
             log2FC = round(top_deg$avg_log2FC, 3),
-            p_adj = format(top_deg$p_val_adj, scientific = TRUE, digits = 3)
+            pct.1  = round(top_deg$pct.1, 3),
+            pct.2  = round(top_deg$pct.2, 3),
+            p_adj  = format(top_deg$p_val_adj, scientific = TRUE, digits = 3)
           )
         }
+
+        # ── Add Moran's I columns if they exist ──────────────────────────
+        if ("Moran_I" %in% colnames(top_deg)) {
+          df$Moran_I     <- round(top_deg$Moran_I, 3)
+          df$Moran_padj  <- ifelse(is.na(top_deg$Moran_padj), NA,
+                                   format(top_deg$Moran_padj, scientific = TRUE, digits = 3))
+          df$Spatial     <- ifelse(is.na(top_deg$spatial_class), "Not tested",
+                                   as.character(top_deg$spatial_class))
+        }
+        # ─────────────────────────────────────────────────────────────────
+        df
       }
     }, rownames = FALSE)
 
