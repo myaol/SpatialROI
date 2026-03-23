@@ -10,7 +10,7 @@ library(gridExtra)
 library(RColorBrewer)
 library(viridis)
 library(Seurat)
-library(SpatialScope)
+library(SpatialScopeDev)
 
 data_path <- getOption("SpatialScope.data_path", default = NULL)
 

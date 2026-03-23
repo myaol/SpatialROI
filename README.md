@@ -35,14 +35,14 @@ devtools::install_github("myaol/SpatialScope")
 ### With Example Data
 
 ```r
-library(SpatialScope)
+library(SpatialScopeDev)
 run_SpatialScope("demo")
 ```
 
 ### With Your Own Data
 
 ```r
-library(SpatialScope)
+library(SpatialScopeDev)
 Seurat_object <- readRDS("path/to/your_seurat.rds")
 run_spatial_selector(Seurat_object, sample_name = "MyExperiment", show_image = TRUE)
 ```
@@ -60,7 +60,7 @@ Or upload through the app interface in the Visualization section using the 📤 
 If you only need to select spots from a region of interest without launching the full analysis app:
 
 ```r
-library(SpatialScope)
+library(SpatialScopeDev)
 
 # Load your Seurat object
 Seurat_object <- readRDS("path/to/your_seurat.rds")

@@ -30,7 +30,7 @@ devtools::install_github("myaol/SpatialScope")
 
 ## Load Library
 ```{r eval=FALSE}
-library(SpatialScope)
+library(SpatialScopeDev)
 ```
 
 # Region of Interest (ROI) Selection
@@ -227,7 +227,7 @@ plot_feature_violin_comparison(
 
 Here's a complete analysis combining multiple SpatialScope functions:
 ```{r eval=FALSE}
-library(SpatialScope)
+library(SpatialScopeDev)
 
 # Step 1: Load data
 Seurat_object <- readRDS("path/to/Seurat_object.rds")

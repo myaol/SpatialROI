@@ -24,7 +24,7 @@ SpatialScope is an interactive web application for region-specific analysis and 
 To launch SpatialScope, run the following command in R:
 
 ```{r eval=FALSE}
-library(SpatialScope)
+library(SpatialScopeDev)
 run_spatial_selector()
 ```
 
@@ -41,7 +41,7 @@ The `draw_ROI()` function provides a lightweight interactive tool for quickly se
 ### Usage
 
 ```{r eval=FALSE}
-library(SpatialScope)
+library(SpatialScopeDev)
 
 # Load your data
 my_data <- readRDS("path/to/your_seurat.rds")
@@ -80,7 +80,7 @@ SpatialScope provides two convenient options for loading data: using a built-in 
 You can launch the app with the preloaded example dataset by running:
 
 ```{r eval=FALSE}
-library(SpatialScope)
+library(SpatialScopeDev)
 run_spatial_selector("demo")
 ```
 
@@ -93,7 +93,7 @@ The demo dataset is derived from human colorectal cancer spatial transcriptomics
 If you have your own spatial transcriptomics dataset (e.g., a .rds or .rdata file containing a Seurat object), you can launch the app with it:
 
 ```{r eval=FALSE}
-library(SpatialScope)
+library(SpatialScopeDev)
 my_data <- readRDS("path/to/your_seurat.rds")
 run_spatial_selector(my_data, sample_name = "MyExperiment")
 ```
