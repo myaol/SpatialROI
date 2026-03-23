@@ -2827,6 +2827,55 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           markers$gene <- rownames(markers)
           markers <- markers[order(markers$p_val_adj, -abs(markers$avg_log2FC)), ]
 
+          # ── Moran's I spatial autocorrelation ──────────────────────────────
+          if (requireNamespace("spdep", quietly = TRUE)) {
+            tryCatch({
+              coords_full <- Seurat::GetTissueCoordinates(seurat_obj)
+              moran_spots <- if (input$deg_comparison == "Group 2 vs Rest") g2 else g1
+              coords <- coords_full[rownames(coords_full) %in% moran_spots, ]
+              coords <- as.matrix(coords[, c("imagerow", "imagecol")])
+
+              if (nrow(coords) >= 30) {
+                effective_k  <- min(6, nrow(coords) - 1)
+                knn_obj      <- spdep::knearneigh(coords, k = effective_k)
+                listw_obj    <- spdep::nb2listw(spdep::knn2nb(knn_obj), style = "W", zero.policy = TRUE)
+
+                candidate_genes <- head(
+                  intersect(markers$gene, rownames(seurat_obj@assays$Spatial$data)), 100
+                )
+                expr_matrix <- as.matrix(
+                  seurat_obj@assays$Spatial$data[candidate_genes, rownames(coords), drop = FALSE]
+                )
+
+                moran_results <- lapply(candidate_genes, function(gene) {
+                  x <- expr_matrix[gene, ]
+                  if (var(x) == 0) return(data.frame(gene=gene, Moran_I=NA_real_, Moran_pval=NA_real_))
+                  tryCatch({
+                    mt <- spdep::moran.mc(x, listw=listw_obj, nsim=999,
+                                          zero.policy=TRUE, alternative="greater")
+                    data.frame(gene=gene, Moran_I=mt$statistic, Moran_pval=mt$p.value)
+                  }, error=function(e) data.frame(gene=gene, Moran_I=NA_real_, Moran_pval=NA_real_))
+                })
+
+                moran_df             <- do.call(rbind, moran_results)
+                moran_df$Moran_padj  <- p.adjust(moran_df$Moran_pval, method = "BH")
+                markers              <- merge(markers, moran_df, by = "gene", all.x = TRUE)
+                markers$spatial_class <- dplyr::case_when(
+                  is.na(markers$Moran_I)                           ~ "Not tested",
+                  !is.na(markers$Moran_padj) & markers$Moran_padj < 0.05 ~ "Spatially structured",
+                  TRUE                                              ~ "Not structured"
+                )
+                markers <- markers[order(markers$p_val_adj,
+                                         -replace(markers$Moran_I, is.na(markers$Moran_I), -Inf)), ]
+              }
+            }, error = function(e) {
+              message("Moran's I skipped: ", e$message)
+            })
+          }
+          # ───────────────────────────────────────────────────────────────────
+
+
+
           deg_results(markers)
 
           removeNotification(id = "deg_running")
