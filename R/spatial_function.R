@@ -2845,47 +2845,63 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
               coords <- as.matrix(coords[, c("imagerow", "imagecol")])
 
               if (nrow(coords) >= 30) {
-                effective_k  <- min(6, nrow(coords) - 1)
-                knn_obj      <- spdep::knearneigh(coords, k = effective_k)
-                listw_obj    <- spdep::nb2listw(spdep::knn2nb(knn_obj), style = "W", zero.policy = TRUE)
+                effective_k <- min(6, nrow(coords) - 1)
+                knn_obj     <- spdep::knearneigh(coords, k = effective_k)
+                listw_obj   <- spdep::nb2listw(spdep::knn2nb(knn_obj), style = "W", zero.policy = TRUE)
 
                 spatial_assay <- if ("Spatial" %in% names(seurat_obj@assays)) "Spatial" else DefaultAssay(seurat_obj)
+
+                # Only run Moran's I on significant DEGs (the pathologist's workflow)
+                sig_markers <- markers[!is.na(markers$p_val_adj) & markers$p_val_adj < 0.05, ]
+
                 candidate_genes <- head(
-                  intersect(markers$gene, rownames(Seurat::GetAssayData(seurat_obj, assay = spatial_assay, layer = "data"))), 100
+                  intersect(sig_markers$gene,
+                            rownames(Seurat::GetAssayData(seurat_obj, assay = spatial_assay, layer = "data"))),
+                  100
                 )
 
+                if (length(candidate_genes) > 0) {
+                  expr_matrix <- as.matrix(
+                    Seurat::GetAssayData(seurat_obj, assay = spatial_assay, layer = "data")[candidate_genes, rownames(coords), drop = FALSE]
+                  )
 
-                expr_matrix <- as.matrix(
-                  Seurat::GetAssayData(seurat_obj, assay = spatial_assay, layer = "data")[candidate_genes, rownames(coords), drop = FALSE]
-                )
+                  moran_results <- lapply(candidate_genes, function(gene) {
+                    x <- expr_matrix[gene, ]
+                    if (var(x) == 0) return(data.frame(gene = gene, Moran_I = NA_real_, Moran_pval = NA_real_))
+                    tryCatch({
+                      mt <- spdep::moran.test(x, listw = listw_obj,
+                                              zero.policy = TRUE, alternative = "greater")
+                      data.frame(gene = gene, Moran_I = as.numeric(mt$estimate[1]), Moran_pval = mt$p.value)
+                    }, error = function(e) data.frame(gene = gene, Moran_I = NA_real_, Moran_pval = NA_real_))
+                  })
 
-                moran_results <- lapply(candidate_genes, function(gene) {
-                  x <- expr_matrix[gene, ]
-                  if (var(x) == 0) return(data.frame(gene=gene, Moran_I=NA_real_, Moran_pval=NA_real_))
-                  tryCatch({
-                    mt <- spdep::moran.test(x, listw=listw_obj,
-                                          zero.policy=TRUE, alternative="greater")
-                    data.frame(gene=gene, Moran_I=as.numeric(mt$statistic), Moran_pval=mt$p.value)
-                  }, error=function(e) data.frame(gene=gene, Moran_I=NA_real_, Moran_pval=NA_real_))
-                })
+                  moran_df            <- do.call(rbind, moran_results)
+                  moran_df$Moran_padj <- p.adjust(moran_df$Moran_pval, method = "BH")
 
-                moran_df             <- do.call(rbind, moran_results)
-                moran_df$Moran_padj  <- p.adjust(moran_df$Moran_pval, method = "BH")
-                markers              <- merge(markers, moran_df, by = "gene", all.x = TRUE)
-                markers$spatial_class <- dplyr::case_when(
-                  is.na(markers$Moran_I)                           ~ "Not tested",
-                  !is.na(markers$Moran_padj) & markers$Moran_padj < 0.05 ~ "Spatially structured",
-                  TRUE                                              ~ "Not structured"
-                )
-                markers <- markers[order(markers$p_val_adj,
-                                         -replace(markers$Moran_I, is.na(markers$Moran_I), -Inf)), ]
+                  # Merge Moran's I back into ALL markers (non-sig genes get NA)
+                  markers <- merge(markers, moran_df, by = "gene", all.x = TRUE)
+
+                  markers$spatial_class <- dplyr::case_when(
+                    is.na(markers$Moran_I)                               ~ "Not tested",
+                    markers$Moran_padj < 0.05 & markers$Moran_I > 0.3   ~ "Spatially structured",
+                    markers$Moran_padj < 0.05                            ~ "Weakly structured",
+                    TRUE                                                  ~ "Not structured"
+                  )
+
+                  # Step 1: filter to significant DEGs only
+                  # Step 2: rank by Moran's I (high to low), then by DEG p_val_adj
+                  markers <- markers[!is.na(markers$p_val_adj) & markers$p_val_adj < 0.05, ]
+                  markers <- markers[order(
+                    -replace(markers$Moran_I, is.na(markers$Moran_I), -Inf),  # primary: spatial structure
+                    markers$p_val_adj                                           # secondary: DEG significance
+                  ), ]
+                }
               }
             }, error = function(e) {
               message("Moran's I skipped: ", e$message)
             })
           }
           # ───────────────────────────────────────────────────────────────────
-
 
 
           deg_results(markers)
@@ -2976,19 +2992,20 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     output$deg_table <- renderTable({
       deg <- deg_results()
       if (!is.null(deg)) {
-        top_deg <- head(deg, 50)  # Show more results for cluster analysis
+        top_deg <- head(deg, 50)
 
-        # Check if this is cluster-based analysis (has 'cluster' column)
+        # Cluster-based analysis (no Moran's I)
         if ("cluster" %in% colnames(top_deg)) {
           df <- data.frame(
             Cluster = top_deg$cluster,
-            Gene = top_deg$gene,
-            log2FC = round(top_deg$avg_log2FC, 3),
-            pct.1 = round(top_deg$pct.1, 3),
-            pct.2 = round(top_deg$pct.2, 3),
-            p_adj = format(top_deg$p_val_adj, scientific = TRUE, digits = 3)
+            Gene    = top_deg$gene,
+            log2FC  = round(top_deg$avg_log2FC, 3),
+            pct.1   = round(top_deg$pct.1, 3),
+            pct.2   = round(top_deg$pct.2, 3),
+            p_adj   = format(top_deg$p_val_adj, scientific = TRUE, digits = 3)
           )
         } else {
+          # Group-based analysis — include Moran's I if available
           df <- data.frame(
             Gene   = top_deg$gene,
             log2FC = round(top_deg$avg_log2FC, 3),
@@ -2996,21 +3013,19 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
             pct.2  = round(top_deg$pct.2, 3),
             p_adj  = format(top_deg$p_val_adj, scientific = TRUE, digits = 3)
           )
+
+          if ("Moran_I" %in% colnames(top_deg)) {
+            df$Moran_I    <- round(top_deg$Moran_I, 3)
+            df$Moran_padj <- ifelse(is.na(top_deg$Moran_padj), "—",
+                                    format(top_deg$Moran_padj, scientific = TRUE, digits = 3))
+            df$Spatial    <- ifelse(is.na(top_deg$spatial_class), "Not tested",
+                                    as.character(top_deg$spatial_class))
+          }
         }
 
-        # ── Add Moran's I columns if they exist ──────────────────────────
-        if ("Moran_I" %in% colnames(top_deg)) {
-          df$Moran_I     <- round(top_deg$Moran_I, 3)
-          df$Moran_padj  <- ifelse(is.na(top_deg$Moran_padj), NA,
-                                   format(top_deg$Moran_padj, scientific = TRUE, digits = 3))
-          df$Spatial     <- ifelse(is.na(top_deg$spatial_class), "Not tested",
-                                   as.character(top_deg$spatial_class))
-        }
-        # ─────────────────────────────────────────────────────────────────
         df
       }
     }, rownames = FALSE)
-
 
     # Violin plot
     observeEvent(input$plot_violin, {
