@@ -2849,20 +2849,23 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                 knn_obj      <- spdep::knearneigh(coords, k = effective_k)
                 listw_obj    <- spdep::nb2listw(spdep::knn2nb(knn_obj), style = "W", zero.policy = TRUE)
 
+                spatial_assay <- if ("Spatial" %in% names(seurat_obj@assays)) "Spatial" else DefaultAssay(seurat_obj)
                 candidate_genes <- head(
-                  intersect(markers$gene, rownames(Seurat::GetAssayData(seurat_obj, assay = "Spatial", layer = "data"))), 100
+                  intersect(markers$gene, rownames(Seurat::GetAssayData(seurat_obj, assay = spatial_assay, layer = "data"))), 100
                 )
+
+
                 expr_matrix <- as.matrix(
-                  Seurat::GetAssayData(seurat_obj, assay = "Spatial", layer = "data")[candidate_genes, rownames(coords), drop = FALSE]
+                  Seurat::GetAssayData(seurat_obj, assay = spatial_assay, layer = "data")[candidate_genes, rownames(coords), drop = FALSE]
                 )
 
                 moran_results <- lapply(candidate_genes, function(gene) {
                   x <- expr_matrix[gene, ]
                   if (var(x) == 0) return(data.frame(gene=gene, Moran_I=NA_real_, Moran_pval=NA_real_))
                   tryCatch({
-                    mt <- spdep::moran.mc(x, listw=listw_obj, nsim=999,
+                    mt <- spdep::moran.test(x, listw=listw_obj,
                                           zero.policy=TRUE, alternative="greater")
-                    data.frame(gene=gene, Moran_I=mt$statistic, Moran_pval=mt$p.value)
+                    data.frame(gene=gene, Moran_I=as.numeric(mt$statistic), Moran_pval=mt$p.value)
                   }, error=function(e) data.frame(gene=gene, Moran_I=NA_real_, Moran_pval=NA_real_))
                 })
 
