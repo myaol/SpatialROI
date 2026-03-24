@@ -1877,7 +1877,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         write.csv(props, file)
       }
     )
-    ```
+    
 
 
     # Clustering
