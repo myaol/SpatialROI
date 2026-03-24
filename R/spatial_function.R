@@ -964,6 +964,44 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                                              "Rainbow" = "rainbow")),
                                      plotOutput("color_legend", height = "150px")
                                    )
+
+                               )
+                               # Cell Type Deconvolution Section
+                               div(class = "control-section",
+                                   h4("🔬 Cell Type Deconvolution"),
+                                   tags$p(style = "font-size: 12px; color: #7f8c8d; margin-bottom: 10px;",
+                                          "Estimate cell type proportions in your selected ROI using RCTD."),
+
+                                   # Reference upload
+                                   fileInput("upload_reference", "Upload scRNA-seq Reference (.rds)",
+                                             accept = c(".rds")),
+                                   conditionalPanel(
+                                     condition = "input.upload_reference != null",
+                                     selectInput("ref_celltype_col", "Cell type column in reference metadata:",
+                                                 choices = c("Idents (default)" = "idents"))
+                                   ),
+                                   verbatimTextOutput("ref_status"),
+
+                                   # Run button — only meaningful when spots are selected
+                                   actionButton("run_deconv", "🔬 Estimate Cell Composition",
+                                                class = "btn btn-primary btn-block",
+                                                style = "margin-top: 10px;"),
+                                   tags$p(style = "font-size: 11px; color: #e67e22; margin-top: 5px;",
+                                          "⚠️ Requires Group 1 or Group 2 spots to be saved first."),
+
+                                   # Results
+                                   conditionalPanel(
+                                     condition = "output.deconv_results_available",
+                                     tags$hr(),
+                                     h5("Cell Type Proportions"),
+                                     selectInput("deconv_group", "Show results for:",
+                                                 choices = c("Group 1" = "group1", "Group 2" = "group2")),
+                                     plotOutput("deconv_barplot", height = "250px"),
+                                     tableOutput("deconv_table"),
+                                     downloadButton("dl_deconv", "⬇ Download Proportions",
+                                                    class = "btn btn-success btn-sm",
+                                                    style = "margin-top: 8px;")
+                                   )
                                )
                       ),
 
@@ -1693,6 +1731,154 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         clearGroup("group2_display")
       showNotification("Selection and all groups cleared", type = "message", duration = 2)
     })
+
+
+    ## celltype deconvolution
+    # Load reference
+    ref_seurat <- reactiveVal(NULL)
+
+    observeEvent(input$upload_reference, {
+      req(input$upload_reference)
+      tryCatch({
+        ref <- readRDS(input$upload_reference$datapath)
+        ref_seurat(ref)
+        
+        # Update cell type column choices from reference metadata
+        meta_cols <- colnames(ref@meta.data)
+        updateSelectInput(session, "ref_celltype_col",
+                          choices = c("Idents (default)" = "idents", meta_cols))
+        output$ref_status <- renderText("✓ Reference loaded successfully")
+      }, error = function(e) {
+        output$ref_status <- renderText(paste("✗ Error:", e$message))
+      })
+    })
+
+    # Run RCTD deconvolution
+    deconv_results <- reactiveVal(NULL)
+
+    output$deconv_results_available <- reactive({ !is.null(deconv_results()) })
+    outputOptions(output, "deconv_results_available", suspendWhenHidden = FALSE)
+
+    observeEvent(input$run_deconv, {
+      req(ref_seurat())
+      
+      g1 <- group1_spots()
+      g2 <- group2_spots()
+      
+      if (length(g1) == 0 && length(g2) == 0) {
+        showNotification("Save at least one group first!", type = "error")
+        return()
+      }
+      
+      showNotification("Running RCTD deconvolution... this may take a minute.",
+                      type = "message", duration = NULL, id = "rctd_running")
+      
+      tryCatch({
+        if (!requireNamespace("spacexr", quietly = TRUE)) {
+          stop("Please install spacexr: devtools::install_github('dmcable/spacexr')")
+        }
+        
+        ref <- ref_seurat()
+        
+        # Build cell type labels from reference
+        if (input$ref_celltype_col == "idents") {
+          cell_types <- Idents(ref)
+        } else {
+          cell_types <- ref@meta.data[[input$ref_celltype_col]]
+          names(cell_types) <- colnames(ref)
+        }
+        cell_types <- as.factor(cell_types)
+        
+        # Get normalized counts from reference
+        ref_counts <- Seurat::GetAssayData(ref, layer = "counts")
+        ref_counts <- round(ref_counts)  # RCTD needs integer counts
+        
+        # Build RCTD Reference object
+        rctd_ref <- spacexr::Reference(ref_counts, cell_types)
+        
+        results <- list()
+        
+        for (grp in c("group1", "group2")) {
+          spots <- if (grp == "group1") g1 else g2
+          if (length(spots) == 0) next
+          
+          # Get spatial counts for selected spots
+          spatial_assay <- if ("Spatial" %in% names(seurat_obj@assays)) "Spatial" else DefaultAssay(seurat_obj)
+          sp_counts <- Seurat::GetAssayData(seurat_obj, assay = spatial_assay, layer = "counts")[, spots]
+          sp_counts <- round(sp_counts)
+          
+          # Get coordinates
+          coords <- Seurat::GetTissueCoordinates(seurat_obj)[spots, c("imagecol", "imagerow")]
+          colnames(coords) <- c("x", "y")
+          
+          # Build SpatialRNA object
+          sp_obj <- spacexr::SpatialRNA(coords, sp_counts)
+          
+          # Run RCTD
+          rctd_obj <- spacexr::create.RCTD(sp_obj, rctd_ref, max_cores = 1)
+          rctd_obj <- spacexr::run.RCTD(rctd_obj, doublet_mode = "full")
+          
+          # Extract proportions
+          props <- spacexr::normalize_weights(rctd_obj@results$weights)
+          results[[grp]] <- as.data.frame(props)
+        }
+        
+        deconv_results(results)
+        removeNotification(id = "rctd_running")
+        showNotification("✓ Deconvolution complete!", type = "message")
+        
+      }, error = function(e) {
+        removeNotification(id = "rctd_running")
+        showNotification(paste("Error:", e$message), type = "error", duration = 10)
+      })
+    })
+
+    # Barplot output
+    output$deconv_barplot <- renderPlot({
+      req(deconv_results())
+      grp <- input$deconv_group
+      props <- deconv_results()[[grp]]
+      if (is.null(props)) return(NULL)
+      
+      avg_props <- colMeans(props, na.rm = TRUE)
+      avg_props <- sort(avg_props, decreasing = TRUE)
+      df <- data.frame(CellType = names(avg_props), Proportion = as.numeric(avg_props))
+      
+      ggplot(df, aes(x = reorder(CellType, Proportion), y = Proportion, fill = CellType)) +
+        geom_bar(stat = "identity") +
+        coord_flip() +
+        scale_y_continuous(labels = scales::percent) +
+        labs(title = paste("Cell Type Proportions -", ifelse(grp == "group1", "Group 1", "Group 2")),
+            x = NULL, y = "Mean Proportion") +
+        theme_minimal() +
+        theme(legend.position = "none",
+              plot.title = element_text(size = 13, face = "bold"))
+    })
+
+    # Table output
+    output$deconv_table <- renderTable({
+      req(deconv_results())
+      grp <- input$deconv_group
+      props <- deconv_results()[[grp]]
+      if (is.null(props)) return(NULL)
+      
+      avg_props <- sort(colMeans(props, na.rm = TRUE), decreasing = TRUE)
+      data.frame(
+        Cell_Type  = names(avg_props),
+        Proportion = paste0(round(avg_props * 100, 1), "%")
+      )
+    }, rownames = FALSE)
+
+    # Download
+    output$dl_deconv <- downloadHandler(
+      filename = function() paste0("deconvolution_", input$deconv_group, ".csv"),
+      content = function(file) {
+        props <- deconv_results()[[input$deconv_group]]
+        write.csv(props, file)
+      }
+    )
+    ```
+
 
     # Clustering
     observeEvent(input$run_clustering, {
