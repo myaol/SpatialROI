@@ -965,7 +965,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                      plotOutput("color_legend", height = "150px")
                                    )
 
-                               )
+                               ),
                                # Cell Type Deconvolution Section
                                div(class = "control-section",
                                    h4("🔬 Cell Type Deconvolution"),
