@@ -967,40 +967,80 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
                                ),
                                # Cell Type Deconvolution Section
-                               div(class = "control-section",
+
+                                div(class = "control-section",
                                     h4("🔬 Cell Type Deconvolution"),
                                     tags$p(style = "font-size: 12px; color: #7f8c8d; margin-bottom: 10px;",
                                           "Estimate cell type proportions in your selected ROI using RCTD."),
 
-                                    # Toggle button for reference upload
-                                    div(style = "display: flex; gap: 10px; margin-bottom: 10px;",
-                                        actionButton("show_ref_upload", "📤 Upload scRNA-seq Reference",
-                                                    class = "btn btn-info",
-                                                    style = "flex: 1;")
-                                    ),
+                                    # ── Reference source selector ──────────────────────────────────────────
+                                    h5("Reference Data"),
+                                    radioButtons("ref_source", NULL,
+                                                choices = c("Use built-in reference" = "builtin",
+                                                            "Upload my own reference" = "upload"),
+                                                selected = "builtin"),
+
+                                    # Built-in reference picker
                                     conditionalPanel(
-                                      condition = "input.show_ref_upload % 2 == 1",
-                                      fileInput("upload_reference", "Select scRNA-seq Reference (.rds)",
-                                                accept = c(".rds")),
-                                      selectInput("ref_celltype_col", "Cell type column in reference metadata:",
-                                                  choices = c("Idents (default)" = "idents")),
-                                      tags$p(style = "font-size: 12px; color: #7f8c8d; margin-top: 5px;",
-                                            "⚠️ Loading a new reference will reset deconvolution results.")
+                                      condition = "input.ref_source == 'builtin'",
+                                      selectInput("builtin_ref_choice",
+                                                  "Select built-in reference:",
+                                                  choices = c(
+                                                    "CRC — Colorectal Cancer (SMC cohort)" = "crc"
+                                                    # Add more here as you package new references, e.g.:
+                                                    # "BRCA — Breast Cancer" = "brca",
+                                                    # "LUAD — Lung Adenocarcinoma" = "luad"
+                                                  )),
+                                      tags$p(style = "font-size: 11px; color: #7f8c8d; margin-top: 4px;",
+                                            "📦 Reference bundled with SpatialScope. Matched to the demo dataset."),
+                                      actionButton("load_builtin_ref", "Load Built-in Reference",
+                                                  class = "btn btn-info btn-block",
+                                                  style = "margin-top: 6px;")
                                     ),
+
+                                    # User upload
+                                    conditionalPanel(
+                                      condition = "input.ref_source == 'upload'",
+                                      div(style = "display: flex; gap: 10px; margin-bottom: 10px;",
+                                          actionButton("show_ref_upload", "📤 Upload scRNA-seq Reference",
+                                                      class = "btn btn-info",
+                                                      style = "flex: 1;")
+                                      ),
+                                      conditionalPanel(
+                                        condition = "input.show_ref_upload % 2 == 1",
+                                        fileInput("upload_reference", "Select scRNA-seq Reference (.rds)",
+                                                  accept = c(".rds")),
+                                        tags$p(style = "font-size: 12px; color: #7f8c8d; margin-top: 5px;",
+                                              "⚠️ Loading a new reference will reset deconvolution results.")
+                                      )
+                                    ),
+
+                                    # Cell type column selector (shown after any reference is loaded)
+                                    conditionalPanel(
+                                      condition = "output.ref_loaded",
+                                      selectInput("ref_celltype_col",
+                                                  "Cell type column in reference metadata:",
+                                                  choices = c("Idents (default)" = "idents")),
+                                      tags$p(style = "font-size: 11px; color: #e67e22; margin-top: 3px;",
+                                            "⚠️ Make sure your reference covers the major cell types in your tissue.
+                                              Results may be unreliable if key cell types are absent.")
+                                    ),
+
                                     verbatimTextOutput("ref_status"),
 
-                                    # Run button
+                                    # ── Run button ─────────────────────────────────────────────────────────
                                     actionButton("run_deconv", "🔬 Estimate Cell Composition",
                                                 class = "btn btn-primary btn-block",
                                                 style = "margin-top: 10px;"),
                                     tags$p(style = "font-size: 11px; color: #e67e22; margin-top: 5px;",
                                           "⚠️ Save spots to Group 1 or Group 2 on the map first. No download needed."),
 
-                                    # Results
+                                    # ── Results ────────────────────────────────────────────────────────────
                                     conditionalPanel(
                                       condition = "output.deconv_results_available",
                                       tags$hr(),
                                       h5("Cell Type Proportions"),
+                                      verbatimTextOutput("deconv_gene_overlap_msg"),
                                       selectInput("deconv_group", "Show results for:",
                                                   choices = c("Group 1" = "group1", "Group 2" = "group2")),
                                       plotOutput("deconv_barplot", height = "250px"),
@@ -1010,6 +1050,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                                     style = "margin-top: 8px;")
                                     )
                                 ),
+
 
                       ),
 
@@ -1744,49 +1785,91 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     ## celltype deconvolution
 
 
-    # Load reference
-    ref_seurat <- reactiveVal(NULL)
+    # ── Built-in reference paths ───────────────────────────────────────────────────
+    # Place your .rds files in a data/ subfolder next to app.R
+    builtin_refs <- list(
+      crc  = system.file("extdata", "CRC_reference_RCTD.rds", package = "SpatialScope")
+      # Add more as you package them:
+      # brca = "data/BRCA_reference_RCTD.rds",
+      # luad = "data/LUAD_reference_RCTD.rds"
+    )
 
-    observeEvent(input$upload_reference, {
-      req(input$upload_reference)
-      tryCatch({
-        ref <- readRDS(input$upload_reference$datapath)
+    # ── Reactive state ─────────────────────────────────────────────────────────────
+    ref_seurat   <- reactiveVal(NULL)   # raw Seurat reference
+    rctd_ref_cache <- reactiveVal(NULL) # cached spacexr::Reference object
+                                        # invalidated when ref_seurat changes
 
-        # Basic validation: must be a Seurat object
-        if (!inherits(ref, "Seurat")) {
-          output$ref_status <- renderText("✗ Error: File is not a Seurat object.")
-          return()
-        }
+    # Helper flag: is any reference currently loaded?
+    output$ref_loaded <- reactive({ !is.null(ref_seurat()) })
+    outputOptions(output, "ref_loaded", suspendWhenHidden = FALSE)
 
-        ref_seurat(ref)
+    # ── Shared helper: ingest any loaded reference Seurat object ───────────────────
+    ingest_reference <- function(ref, source_label) {
+      if (!inherits(ref, "Seurat")) {
+        output$ref_status <- renderText("✗ Error: File is not a Seurat object.")
+        return()
+      }
 
-        # Populate cell type column dropdown from reference metadata
-        meta_cols <- colnames(ref@meta.data)
-        updateSelectInput(session, "ref_celltype_col",
-                          choices = c("Idents (default)" = "idents", meta_cols))
+      ref_seurat(ref)
+      rctd_ref_cache(NULL)   # invalidate cache whenever reference changes
 
-        n_cells <- ncol(ref)
-        n_types <- if ("idents" == "idents") length(unique(Idents(ref))) else NA
+      meta_cols <- colnames(ref@meta.data)
+      updateSelectInput(session, "ref_celltype_col",
+                        choices = c("Idents (default)" = "idents", meta_cols))
+
+      n_cells  <- ncol(ref)
+      n_types  <- length(unique(Idents(ref)))
+      output$ref_status <- renderText(
+        paste0("✓ ", source_label, " loaded: ",
+              n_cells, " cells, ", n_types, " cell types (by Idents)")
+      )
+    }
+
+    # ── Load built-in reference ────────────────────────────────────────────────────
+    observeEvent(input$load_builtin_ref, {
+      choice <- input$builtin_ref_choice
+      path   <- builtin_refs[[choice]]
+
+      if (is.null(path) || !file.exists(path)) {
         output$ref_status <- renderText(
-          paste0("✓ Reference loaded: ", n_cells, " cells, ",
-                length(unique(Idents(ref))), " cell types (by Idents)")
+          paste0("✗ Built-in reference file not found: ", path,
+                "\nPlace it in the app's data/ folder.")
         )
+        return()
+      }
+
+      output$ref_status <- renderText("⏳ Loading built-in reference...")
+      tryCatch({
+        ref <- readRDS(path)
+        ingest_reference(ref, names(builtin_refs)[builtin_refs == path])
       }, error = function(e) {
         output$ref_status <- renderText(paste("✗ Error:", e$message))
       })
     })
 
-    # Run RCTD deconvolution
-    deconv_results <- reactiveVal(NULL)
+    # ── Load user-uploaded reference ───────────────────────────────────────────────
+    observeEvent(input$upload_reference, {
+      req(input$upload_reference)
+      output$ref_status <- renderText("⏳ Loading uploaded reference...")
+      tryCatch({
+        ref <- readRDS(input$upload_reference$datapath)
+        ingest_reference(ref, "Uploaded reference")
+      }, error = function(e) {
+        output$ref_status <- renderText(paste("✗ Error:", e$message))
+      })
+    })
+
+    # ── Run RCTD ───────────────────────────────────────────────────────────────────
+    deconv_results       <- reactiveVal(NULL)
+    deconv_overlap_msg   <- reactiveVal(NULL)   # gene overlap info for the UI
 
     output$deconv_results_available <- reactive({ !is.null(deconv_results()) })
     outputOptions(output, "deconv_results_available", suspendWhenHidden = FALSE)
 
     observeEvent(input$run_deconv, {
 
-      # Must have a reference loaded
       if (is.null(ref_seurat())) {
-        showNotification("Please upload a scRNA-seq reference first.", type = "error")
+        showNotification("Please load a reference first (built-in or upload).", type = "error")
         return()
       }
 
@@ -1800,7 +1883,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
       if (!requireNamespace("spacexr", quietly = TRUE)) {
         showNotification(
-          "spacexr is not installed. Run: devtools::install_github('dmcable/spacexr')",
+          "spacexr not installed. Run: devtools::install_github('dmcable/spacexr')",
           type = "error", duration = 15
         )
         return()
@@ -1812,68 +1895,122 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       tryCatch({
         ref <- ref_seurat()
 
-        # ── Build RCTD Reference ──────────────────────────────────────────────────
-        if (input$ref_celltype_col == "idents") {
-          cell_types <- Idents(ref)
-        } else {
-          cell_types <- ref@meta.data[[input$ref_celltype_col]]
-          names(cell_types) <- colnames(ref)
+        # ── Build (or reuse cached) spacexr::Reference ─────────────────────────
+        if (is.null(rctd_ref_cache())) {
+
+          if (input$ref_celltype_col == "idents") {
+            cell_types <- Idents(ref)
+          } else {
+            cell_types <- ref@meta.data[[input$ref_celltype_col]]
+            names(cell_types) <- colnames(ref)
+          }
+          cell_types <- as.factor(cell_types)
+
+          # Drop cell types with < 25 cells (RCTD hard requirement)
+          type_counts <- table(cell_types)
+          valid_types <- names(type_counts[type_counts >= 25])
+          keep_cells  <- names(cell_types)[cell_types %in% valid_types]
+
+          if (length(valid_types) < 2) {
+            stop("Need ≥2 cell types with ≥25 cells each in the reference.")
+          }
+
+          dropped <- setdiff(levels(cell_types), valid_types)
+          if (length(dropped) > 0) {
+            showNotification(
+              paste0("Dropped ", length(dropped), " rare cell type(s) with <25 cells: ",
+                    paste(dropped, collapse = ", ")),
+              type = "warning", duration = 10
+            )
+          }
+
+          ref_counts <- Seurat::GetAssayData(ref[, keep_cells], layer = "counts")
+          ref_counts <- round(ref_counts)
+          cell_types <- droplevels(cell_types[keep_cells])
+
+          rctd_ref_cache(spacexr::Reference(ref_counts, cell_types))
         }
-        cell_types <- as.factor(cell_types)
 
-        # Drop cell types with fewer than 25 cells (RCTD minimum)
-        type_counts <- table(cell_types)
-        valid_types  <- names(type_counts[type_counts >= 25])
-        keep_cells   <- names(cell_types)[cell_types %in% valid_types]
+        rctd_ref <- rctd_ref_cache()
 
-        if (length(valid_types) < 2) {
-          stop("Need at least 2 cell types with ≥25 cells each in the reference.")
-        }
-
-        ref_counts <- Seurat::GetAssayData(ref[, keep_cells], layer = "counts")
-        ref_counts <- round(ref_counts)
-        cell_types  <- droplevels(cell_types[keep_cells])
-
-        rctd_ref <- spacexr::Reference(ref_counts, cell_types)
-
-        # ── Determine spatial assay ───────────────────────────────────────────────
+        # ── Determine spatial assay ────────────────────────────────────────────
         spatial_assay <- if ("Spatial" %in% names(seurat_obj@assays)) {
           "Spatial"
         } else {
           DefaultAssay(seurat_obj)
         }
 
-        # ── Run per group ─────────────────────────────────────────────────────────
-        results <- list()
+        # ── Run per group ──────────────────────────────────────────────────────
+        results      <- list()
+        overlap_msgs <- c()
 
         for (grp in c("group1", "group2")) {
           spots <- if (grp == "group1") g1 else g2
           if (length(spots) == 0) next
 
-          # Spatial counts for selected spots
+          grp_label <- if (grp == "group1") "Group 1" else "Group 2"
+
+          if (length(spots) > 800) {
+            showNotification(
+              paste0(grp_label, ": ", length(spots),
+                    " spots selected — RCTD may take 2-4 minutes."),
+              type = "warning", duration = 8
+            )
+          }
+
+          # Spatial counts
           sp_counts <- Seurat::GetAssayData(seurat_obj,
                                             assay = spatial_assay,
                                             layer = "counts")[, spots, drop = FALSE]
           sp_counts <- round(sp_counts)
 
-          # Coordinates  (try both column-name conventions)
+          # ── FIX 1: Gene intersection ───────────────────────────────────────
+          ref_genes    <- rownames(rctd_ref@counts)
+          common_genes <- intersect(ref_genes, rownames(sp_counts))
+
+          overlap_pct <- round(length(common_genes) / length(ref_genes) * 100, 1)
+          overlap_msgs <- c(overlap_msgs,
+                            paste0(grp_label, ": ", length(common_genes),
+                                  " / ", length(ref_genes),
+                                  " reference genes matched (", overlap_pct, "%)"))
+
+          if (length(common_genes) < 100) {
+            stop(paste0(grp_label, ": Only ", length(common_genes),
+                        " genes overlap between reference and spatial data. ",
+                        "Check that both use the same species and gene symbol convention."))
+          }
+
+          # Subset both to common genes
+          sp_counts_sub  <- sp_counts[common_genes, , drop = FALSE]
+          ref_counts_sub <- rctd_ref@counts[common_genes, ]
+
+          # Rebuild reference with matched genes only
+          rctd_ref_sub <- spacexr::Reference(ref_counts_sub, rctd_ref@cell_types)
+
+          # ── FIX 2: Coordinates with nUMI ──────────────────────────────────
           coords_all <- Seurat::GetTissueCoordinates(seurat_obj)
           x_col <- intersect(c("imagecol", "x"), colnames(coords_all))[1]
           y_col <- intersect(c("imagerow", "y"), colnames(coords_all))[1]
           coords <- coords_all[spots, c(x_col, y_col)]
           colnames(coords) <- c("x", "y")
 
-          # Build SpatialRNA and run RCTD
-          sp_obj   <- spacexr::SpatialRNA(coords, sp_counts)
-          rctd_obj <- spacexr::create.RCTD(sp_obj, rctd_ref, max_cores = 1)
+          sp_obj <- spacexr::SpatialRNA(coords,
+                                        sp_counts_sub,
+                                        nUMI = colSums(sp_counts_sub))  # FIX 2
+
+          # Run RCTD
+          rctd_obj <- spacexr::create.RCTD(sp_obj, rctd_ref_sub,
+                                            max_cores = 1,
+                                            CELL_MIN_INSTANCE = 25)
           rctd_obj <- spacexr::run.RCTD(rctd_obj, doublet_mode = "full")
 
-          # Normalize weights to proportions
           props <- spacexr::normalize_weights(rctd_obj@results$weights)
           results[[grp]] <- as.data.frame(as.matrix(props))
         }
 
         deconv_results(results)
+        deconv_overlap_msg(paste(overlap_msgs, collapse = "\n"))
+
         removeNotification(id = "rctd_running")
         showNotification("✓ Deconvolution complete!", type = "message")
 
@@ -1883,15 +2020,21 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       })
     })
 
-    # ── Barplot ───────────────────────────────────────────────────────────────────
+    # ── Gene overlap info display ──────────────────────────────────────────────────
+    output$deconv_gene_overlap_msg <- renderText({
+      req(deconv_overlap_msg())
+      deconv_overlap_msg()
+    })
+
+    # ── Barplot ────────────────────────────────────────────────────────────────────
     output$deconv_barplot <- renderPlot({
       req(deconv_results())
       grp   <- input$deconv_group
       props <- deconv_results()[[grp]]
       if (is.null(props)) {
-        # Friendly message if user picks a group that wasn't run
         plot.new()
-        text(0.5, 0.5, paste("No results for", grp, "\n(no spots saved to this group)"),
+        text(0.5, 0.5,
+            paste("No results for", grp, "\n(no spots saved to this group)"),
             cex = 1.2, col = "grey50")
         return()
       }
@@ -1916,7 +2059,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
               plot.title = element_text(size = 13, face = "bold"))
     })
 
-    # ── Table ─────────────────────────────────────────────────────────────────────
+    # ── Table ──────────────────────────────────────────────────────────────────────
     output$deconv_table <- renderTable({
       req(deconv_results())
       grp   <- input$deconv_group
@@ -1930,7 +2073,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       )
     }, rownames = FALSE)
 
-    # ── Download ──────────────────────────────────────────────────────────────────
+    # ── Download ───────────────────────────────────────────────────────────────────
     output$dl_deconv <- downloadHandler(
       filename = function() paste0("deconvolution_", input$deconv_group, ".csv"),
       content  = function(file) {
