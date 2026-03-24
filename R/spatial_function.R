@@ -2103,7 +2103,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       }
 
       if (method == "mean") {
-        expr_data <- FetchData(seurat_obj, vars = genes_in_data, slot = "data")
+        expr_data <- FetchData(seurat_obj, vars = genes_in_data, layer = "data")
         scores <- rowMeans(expr_data, na.rm = TRUE)
 
       } else if (method == "addmodulescore") {
@@ -2325,7 +2325,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       input$spot_size
     }, {
       if (input$feature_type == "Gene Expression" && !is.null(input$gene_select) && input$gene_select != "") {
-        gene_expr <- FetchData(seurat_obj, vars = input$gene_select, slot = "data")
+        gene_expr <- FetchData(seurat_obj, vars = input$gene_select, layer = "data")
         values <- gene_expr[spots_sf$spot_id, 1]
         is_categorical(FALSE)  # Gene expression is continuous
         current_values(values)
@@ -3249,7 +3249,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
       tryCatch({
         if (input$violin_feature_type == "gene") {
-          all_values <- FetchData(seurat_obj, vars = feature, slot = "data")
+          all_values <- FetchData(seurat_obj, vars = feature, layer = "data")
           is_numeric_data <- TRUE
         } else if (input$violin_feature_type == "metadata") {
           meta_col <- seurat_obj@meta.data[[feature]]
@@ -3439,7 +3439,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       tryCatch({
         # Get ALL values for feature 1
         if (input$compare_type1 == "gene") {
-          all_values1 <- FetchData(seurat_obj, vars = feature1, slot = "data")[, 1]
+          all_values1 <- FetchData(seurat_obj, vars = feature1, layer = "data")[, 1]
           if (is.null(names(all_values1))) {
             names(all_values1) <- colnames(seurat_obj)
           }
@@ -3458,7 +3458,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
         # Get ALL values for feature 2
         if (input$compare_type2 == "gene") {
-          all_values2 <- FetchData(seurat_obj, vars = feature2, slot = "data")[, 1]
+          all_values2 <- FetchData(seurat_obj, vars = feature2, layer = "data")[, 1]
           if (is.null(names(all_values2))) {
             names(all_values2) <- colnames(seurat_obj)
           }
