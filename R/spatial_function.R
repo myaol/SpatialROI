@@ -1787,11 +1787,19 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
     # ── Built-in reference paths ───────────────────────────────────────────────────
     # Place your .rds files in a data/ subfolder next to app.R
+    
     builtin_refs <- list(
-      crc  = system.file("extdata", "CRC_reference_RCTD.rds", package = "SpatialScope")
-      # Add more as you package them:
-      # brca = "data/BRCA_reference_RCTD.rds",
-      # luad = "data/LUAD_reference_RCTD.rds"
+      crc = {
+        # Works when installed as a package
+        pkg_path <- system.file("extdata", "CRC_reference_RCTD.rds", package = "SpatialScope")
+        if (nchar(pkg_path) > 0 && file.exists(pkg_path)) {
+          pkg_path
+        } else {
+          # Fallback for running app.R directly during development
+          # app.R is at inst/app/app.R, so extdata is one level up
+          file.path(dirname(getwd()), "extdata", "CRC_reference_RCTD.rds")
+        }
+      }
     )
 
     # ── Reactive state ─────────────────────────────────────────────────────────────
@@ -1800,7 +1808,10 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                         # invalidated when ref_seurat changes
 
     # Helper flag: is any reference currently loaded?
-    output$ref_loaded <- reactive({ !is.null(ref_seurat()) })
+
+    output$ref_loaded <- reactive({ 
+      !is.null(ref_seurat()) || !is.null(rctd_ref_cache()) 
+    })
     outputOptions(output, "ref_loaded", suspendWhenHidden = FALSE)
 
     # ── Shared helper: ingest any loaded reference Seurat object ───────────────────
@@ -1826,14 +1837,13 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     }
 
     # ── Load built-in reference ────────────────────────────────────────────────────
+    # ── Load built-in reference (already a spacexr::Reference object) ─────────────
     observeEvent(input$load_builtin_ref, {
-      choice <- input$builtin_ref_choice
-      path   <- builtin_refs[[choice]]
+      path <- builtin_refs[[input$builtin_ref_choice]]
 
       if (is.null(path) || !file.exists(path)) {
         output$ref_status <- renderText(
-          paste0("✗ Built-in reference file not found: ", path,
-                "\nPlace it in the app's data/ folder.")
+          paste0("✗ Built-in reference file not found: ", path)
         )
         return()
       }
@@ -1841,7 +1851,31 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       output$ref_status <- renderText("⏳ Loading built-in reference...")
       tryCatch({
         ref <- readRDS(path)
-        ingest_reference(ref, names(builtin_refs)[builtin_refs == path])
+
+        if (inherits(ref, "Reference")) {
+          # Already a spacexr::Reference — cache it directly, skip the build step
+          rctd_ref_cache(ref)
+
+          n_cells <- ncol(ref@counts)
+          n_types <- length(unique(ref@cell_types))
+          output$ref_status <- renderText(
+            paste0("✓ CRC reference loaded: ", n_cells, " cells, ",
+                  n_types, " cell types")
+          )
+          # Populate the cell type dropdown for display purposes
+          updateSelectInput(session, "ref_celltype_col",
+                            choices = c("Pre-built (spacexr::Reference)" = "prebuilt"))
+
+        } else if (inherits(ref, "Seurat")) {
+          # It's a Seurat object — go through normal ingest
+          ingest_reference(ref, "Built-in CRC reference")
+
+        } else {
+          output$ref_status <- renderText(
+            paste0("✗ Unrecognized format: ", class(ref),
+                  ". Expected a Seurat or spacexr::Reference object.")
+          )
+        }
       }, error = function(e) {
         output$ref_status <- renderText(paste("✗ Error:", e$message))
       })
@@ -1893,10 +1927,15 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                       type = "message", duration = NULL, id = "rctd_running")
 
       tryCatch({
-        ref <- ref_seurat()
 
         # ── Build (or reuse cached) spacexr::Reference ─────────────────────────
         if (is.null(rctd_ref_cache())) {
+          # Only runs for user-uploaded Seurat objects
+          ref <- ref_seurat()
+
+          if (is.null(ref)) {
+            stop("No reference loaded. Please load a built-in or upload a reference first.")
+          }
 
           if (input$ref_celltype_col == "idents") {
             cell_types <- Idents(ref)
@@ -1931,6 +1970,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           rctd_ref_cache(spacexr::Reference(ref_counts, cell_types))
         }
 
+        # At this point rctd_ref_cache() is always populated
+        # (either just built from Seurat, or pre-loaded from built-in)
         rctd_ref <- rctd_ref_cache()
 
         # ── Determine spatial assay ────────────────────────────────────────────
