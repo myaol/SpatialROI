@@ -971,7 +971,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                 div(class = "control-section",
                                     h4("🔬 Cell Type Deconvolution"),
                                     tags$p(style = "font-size: 12px; color: #7f8c8d; margin-bottom: 10px;",
-                                          "Estimate cell type proportions in your selected ROI using RCTD."),
+                                          "Estimate cell type proportions in ROI using RCTD."),
 
                                     # ── Reference source selector ──────────────────────────────────────────
                                     h5("Reference Data"),
@@ -991,8 +991,10 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                                     # "BRCA — Breast Cancer" = "brca",
                                                     # "LUAD — Lung Adenocarcinoma" = "luad"
                                                   )),
+                                      
                                       tags$p(style = "font-size: 11px; color: #7f8c8d; margin-top: 4px;",
-                                            "📦 Reference bundled with SpatialScope. Matched to the demo dataset."),
+                                            "CRC – Colorectal Cancer reference is matched to the demo dataset."),                                      
+
                                       actionButton("load_builtin_ref", "Load Built-in Reference",
                                                   class = "btn btn-info btn-block",
                                                   style = "margin-top: 6px;")
@@ -1015,16 +1017,17 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                       )
                                     ),
 
-                                    # Cell type column selector (shown after any reference is loaded)
+
+                                    # Only show cell type column selector for user-uploaded references
                                     conditionalPanel(
-                                      condition = "output.ref_loaded",
+                                      condition = "input.ref_source == 'upload' && output.ref_loaded",
                                       selectInput("ref_celltype_col",
-                                                  "Cell type column in reference metadata:",
+                                                  "Cell type column:",
                                                   choices = c("Idents (default)" = "idents")),
                                       tags$p(style = "font-size: 11px; color: #e67e22; margin-top: 3px;",
-                                            "⚠️ Make sure your reference covers the major cell types in your tissue.
-                                              Results may be unreliable if key cell types are absent.")
+                                            "⚠️ Ensure your reference covers all major cell types in your tissue.")
                                     ),
+
 
                                     verbatimTextOutput("ref_status"),
 
@@ -1033,7 +1036,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                                 class = "btn btn-primary btn-block",
                                                 style = "margin-top: 10px;"),
                                     tags$p(style = "font-size: 11px; color: #e67e22; margin-top: 5px;",
-                                          "⚠️ Save spots to Group 1 or Group 2 on the map first. No download needed."),
+                                          "💡 Save spots to Group 1 or Group 2 on the map first. No download needed."),
 
                                     # ── Results ────────────────────────────────────────────────────────────
                                     conditionalPanel(
@@ -1048,6 +1051,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                       downloadButton("dl_deconv", "⬇ Download Proportions",
                                                     class = "btn btn-success btn-sm",
                                                     style = "margin-top: 8px;")
+
+
                                     )
                                 ),
 
@@ -1901,8 +1906,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     outputOptions(output, "deconv_results_available", suspendWhenHidden = FALSE)
 
     observeEvent(input$run_deconv, {
-
-      if (is.null(ref_seurat())) {
+      if (is.null(ref_seurat()) && is.null(rctd_ref_cache())) {
         showNotification("Please load a reference first (built-in or upload).", type = "error")
         return()
       }
@@ -2023,10 +2027,13 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
           # Subset both to common genes
           sp_counts_sub  <- sp_counts[common_genes, , drop = FALSE]
-          ref_counts_sub <- rctd_ref@counts[common_genes, ]
+          ref_counts_sub <- rctd_ref@counts[common_genes, , drop = FALSE]
+          # DEBUG - check console output
+
 
           # Rebuild reference with matched genes only
           rctd_ref_sub <- spacexr::Reference(ref_counts_sub, rctd_ref@cell_types)
+          message("Reference built OK")
 
           # ── FIX 2: Coordinates with nUMI ──────────────────────────────────
           coords_all <- Seurat::GetTissueCoordinates(seurat_obj)
@@ -2035,18 +2042,51 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           coords <- coords_all[spots, c(x_col, y_col)]
           colnames(coords) <- c("x", "y")
 
+          coords <- as.data.frame(coords)
+          coords$x <- as.numeric(coords$x)
+          coords$y <- as.numeric(coords$y)
+          rownames(coords) <- spots
+
+                 
+          # Force alignment
+          sp_counts_sub <- sp_counts_sub[, rownames(coords), drop = FALSE]
+
+          # Convert to plain matrix — some spacexr versions don't handle dgCMatrix well
+          sp_counts_mat <- as.matrix(sp_counts_sub)
+          nUMI_vec <- colSums(sp_counts_mat)
+
           sp_obj <- spacexr::SpatialRNA(coords,
-                                        sp_counts_sub,
-                                        nUMI = colSums(sp_counts_sub))  # FIX 2
+                                        sp_counts_mat,
+                                        nUMI = nUMI_vec)
+          message("SpatialRNA built OK")
 
           # Run RCTD
           rctd_obj <- spacexr::create.RCTD(sp_obj, rctd_ref_sub,
                                             max_cores = 1,
                                             CELL_MIN_INSTANCE = 25)
+                              
           rctd_obj <- spacexr::run.RCTD(rctd_obj, doublet_mode = "full")
 
-          props <- spacexr::normalize_weights(rctd_obj@results$weights)
+
+
+          weights_mat <- rctd_obj@results$weights
+
+          if (!is.matrix(weights_mat)) {
+            weights_mat <- as.matrix(weights_mat)
+          }
+          props <- spacexr::normalize_weights(weights_mat)
           results[[grp]] <- as.data.frame(as.matrix(props))
+        }
+
+        # Warn if gene overlap is low
+        for (msg in overlap_msgs) {
+          pct <- as.numeric(gsub(".*\\((.*)%\\).*", "\\1", msg))
+          if (!is.na(pct) && pct < 20) {
+            showNotification(
+              paste0("Low gene overlap (", pct, "%) — results may be less accurate."),
+              type = "warning", duration = 8
+            )
+          }
         }
 
         deconv_results(results)
@@ -2068,37 +2108,41 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     })
 
     # ── Barplot ────────────────────────────────────────────────────────────────────
+
     output$deconv_barplot <- renderPlot({
       req(deconv_results())
       grp   <- input$deconv_group
       props <- deconv_results()[[grp]]
       if (is.null(props)) {
         plot.new()
-        text(0.5, 0.5,
-            paste("No results for", grp, "\n(no spots saved to this group)"),
-            cex = 1.2, col = "grey50")
+        text(0.5, 0.5, "No results for this group.", cex = 1.2, col = "grey50")
         return()
       }
 
-      avg_props <- sort(colMeans(props, na.rm = TRUE), decreasing = TRUE)
-      df <- data.frame(
-        CellType   = factor(names(avg_props), levels = rev(names(avg_props))),
-        Proportion = as.numeric(avg_props)
-      )
+      # Build per-spot stacked bar (sample up to 50 spots for readability)
+      props_mat <- as.matrix(props)
+      if (nrow(props_mat) > 50) {
+        props_mat <- props_mat[sample(nrow(props_mat), 50), ]
+      }
 
-      ggplot(df, aes(x = CellType, y = Proportion, fill = CellType)) +
-        geom_bar(stat = "identity") +
-        coord_flip() +
+      df <- reshape2::melt(props_mat, varnames = c("Spot", "CellType"),
+                          value.name = "Proportion")
+
+      ggplot(df, aes(x = Spot, y = Proportion, fill = CellType)) +
+        geom_bar(stat = "identity", position = "stack") +
         scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
         labs(
-          title = paste("Cell Type Proportions —",
+          title = paste("Cell Type Composition —",
                         ifelse(grp == "group1", "Group 1", "Group 2")),
-          x = NULL, y = "Mean Proportion"
+          x = NULL, y = "Proportion", fill = NULL
         ) +
-        theme_minimal(base_size = 12) +
-        theme(legend.position = "none",
-              plot.title = element_text(size = 13, face = "bold"))
+        theme_minimal(base_size = 11) +
+        theme(axis.text.x = element_blank(),
+              axis.ticks.x = element_blank(),
+              legend.position = "right",
+              plot.title = element_text(size = 12, face = "bold"))
     })
+
 
     # ── Table ──────────────────────────────────────────────────────────────────────
     output$deconv_table <- renderTable({
