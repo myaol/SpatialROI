@@ -1051,12 +1051,86 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                       downloadButton("dl_deconv", "⬇ Download Proportions",
                                                     class = "btn btn-success btn-sm",
                                                     style = "margin-top: 8px;")
+                                    ),
 
+                                    # ── L-R Colocalization Section ────────────────────────────────────────────────
+                                    # Shows only once RCTD has produced results (same conditional gate)
+                                    conditionalPanel(
+                                      condition = "output.deconv_results_available",
+                                      div(class = "control-section",
+                                          h4("🔗 L-R Colocalization"),
+                                          tags$p(style = "font-size: 12px; color: #7f8c8d; margin-bottom: 10px;",
+                                                "Identify ligand-receptor interactions in your ROI. ",
+                                                "Scores computed spot-by-spot with spatial lag, then summarised by region."),
 
-                                    )
+                                          # ── Group selector ──────────────────────────────────────────────────────
+                                          selectInput("lr_group", "Analyze group:",
+                                                      choices = c("Group 1" = "group1", "Group 2" = "group2")),
+
+                                          # ── L-R database source ─────────────────────────────────────────────────
+                                          h5("L-R Database"),
+                                          radioButtons("lr_db_source", NULL,
+                                                      choices = c("Use built-in database" = "builtin",
+                                                                  "Upload my own (.tsv)"  = "upload"),
+                                                      selected = "builtin"),
+
+                                          conditionalPanel(
+                                            condition = "input.lr_db_source == 'upload'",
+                                            fileInput("upload_lr_db", "Select lr_network .tsv file",
+                                                      accept = c(".tsv", ".txt")),
+                                            tags$p(style = "font-size: 11px; color: #7f8c8d;",
+                                                  "Required columns: from, to, database")
+                                          ),
+
+                                          # ── Database filter ─────────────────────────────────────────────────────
+                                          checkboxGroupInput("lr_db_filter", "Include databases:",
+                                                            choices  = c("KEGG"                 = "kegg",
+                                                                          "Guide to Pharmacology" = "guide2pharmacology",
+                                                                          "Ramilowski"            = "ramilowski"),
+                                                            selected = c("kegg", "guide2pharmacology", "ramilowski")),
+
+                                          # ── Spatial lag neighbors ───────────────────────────────────────────────
+                                          sliderInput("lr_k_neighbors", "KNN neighbors for spatial lag:",
+                                                      min = 6, max = 18, value = 18, step = 6),
+
+                                          # ── Run button ──────────────────────────────────────────────────────────
+                                          actionButton("run_lr", "🔗 Run L-R Colocalization",
+                                                      class = "btn btn-primary btn-block",
+                                                      style = "margin-top: 10px;"),
+                                          tags$p(style = "font-size: 11px; color: #e67e22; margin-top: 5px;",
+                                                "⚠️ Run RCTD deconvolution first — correlations need cell-type proportions."),
+
+                                          verbatimTextOutput("lr_status"),
+
+                                          # ── Results ─────────────────────────────────────────────────────────────
+                                          conditionalPanel(
+                                            condition = "output.lr_results_available",
+                                            tags$hr(),
+                                            h5("Top L-R Pairs by Mean Score"),
+                                            tags$p(style = "font-size: 11px; color: #7f8c8d; margin-bottom: 8px;",
+                                                  "Score = geometric mean of spatially-lagged Ligand × Receptor. ",
+                                                  "Correlation = Pearson r between spot-level score and top RCTD cell type."),
+
+                                            numericInput("lr_top_n", "Show top N pairs:",
+                                                        value = 20, min = 5, max = 200, step = 5),
+
+                                            tableOutput("lr_table"),
+
+                                            downloadButton("dl_lr_results", "⬇ Download Full Results",
+                                                          class = "btn btn-success btn-sm",
+                                                          style = "margin-top: 8px;"),
+
+                                            tags$hr(),
+                                            h5("Spatial Map — Selected Pair"),
+                                            selectInput("lr_selected_pair",
+                                                        "Select L-R pair to map:",
+                                                        choices = NULL),
+                                            plotOutput("lr_spatial_plot", height = "300px")
+                                          )
+                                      )
+                                    ),  # end LR section
+
                                 ),
-
-
                       ),
 
                       # Gene Set content - MODIFIED: Added species selection
@@ -2168,6 +2242,334 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       }
     )
 
+    # ══════════════════════════════════════════════════════════════════════════════
+    ## L-R Colocalization
+    # ══════════════════════════════════════════════════════════════════════════════
+
+    # ── Reactive state ─────────────────────────────────────────────────────────────
+    lr_results      <- reactiveVal(NULL)   # aggregated per-pair summary table
+    lr_score_matrix <- reactiveVal(NULL)   # spot × pair matrix (for spatial plot)
+    lr_status_msg   <- reactiveVal(NULL)
+
+    output$lr_results_available <- reactive({ !is.null(lr_results()) })
+    outputOptions(output, "lr_results_available", suspendWhenHidden = FALSE)
+
+    # ── Helper: load and filter L-R database ──────────────────────────────────────
+    get_lr_pairs <- reactive({
+      if (input$lr_db_source == "builtin") {
+        lr_path <- "data/lr_network_unique.tsv"   # same data/ folder as your .rds refs
+        if (!file.exists(lr_path)) {
+          showNotification(
+            "Built-in L-R database not found. Place lr_network_unique.tsv in data/.",
+            type = "error", duration = 10)
+          return(NULL)
+        }
+        lrpair <- read.table(lr_path, header = TRUE, sep = "\t", stringsAsFactors = FALSE)
+      } else {
+        req(input$upload_lr_db)
+        lrpair <- read.table(input$upload_lr_db$datapath,
+                              header = TRUE, sep = "\t", stringsAsFactors = FALSE)
+      }
+
+      selected_dbs <- input$lr_db_filter
+      if (length(selected_dbs) > 0 && "database" %in% colnames(lrpair)) {
+        lrpair <- dplyr::filter(lrpair, database %in% selected_dbs)
+      }
+      lrpair
+    })
+
+    # ── Main computation ───────────────────────────────────────────────────────────
+    observeEvent(input$run_lr, {
+
+      # ── Guards ─────────────────────────────────────────────────────────────────
+      req(seurat_data())   # adjust if your reactive is named differently
+
+      if (is.null(deconv_results())) {
+        showNotification("Run RCTD first — L-R correlation needs cell-type proportions.", type = "error")
+        return()
+      }
+
+      grp   <- input$lr_group
+      spots <- if (grp == "group1") group1_spots() else group2_spots()
+
+      if (length(spots) == 0) {
+        showNotification(paste("No spots saved to", grp), type = "error")
+        return()
+      }
+
+      rctd_props <- deconv_results()[[grp]]
+      if (is.null(rctd_props)) {
+        showNotification(paste("No RCTD results for", grp, "— run RCTD for this group first."),
+                        type = "error")
+        return()
+      }
+
+      lrpair <- get_lr_pairs()
+      if (is.null(lrpair) || nrow(lrpair) == 0) {
+        showNotification("No L-R pairs loaded.", type = "error")
+        return()
+      }
+
+      # ── Align spots (RCTD ∩ spatial) ───────────────────────────────────────────
+      shared_spots <- intersect(spots, rownames(rctd_props))
+      if (length(shared_spots) < 5) {
+        showNotification("Too few spots with both spatial and RCTD data (need ≥ 5).", type = "error")
+        return()
+      }
+
+      showNotification("Running L-R colocalization...", id = "lr_running", duration = NULL)
+
+      withProgress(message = "L-R Colocalization", value = 0, {
+        tryCatch({
+
+          # ── Subset Seurat to group spots ────────────────────────────────────────
+          seurat_obj <- seurat_data()   # adjust name if needed
+          DefaultAssay(seurat_obj) <- "Spatial"
+          seurat_sub   <- subset(seurat_obj, cells = shared_spots)
+          counts_mat   <- seurat_sub@assays$Spatial@counts   # genes × spots
+          avail_genes  <- rownames(counts_mat)
+          n_spots      <- ncol(counts_mat)
+          spot_names   <- colnames(counts_mat)
+
+          # ── Spatial coordinates ─────────────────────────────────────────────────
+          coords     <- GetTissueCoordinates(seurat_sub)
+          cc         <- colnames(coords)
+          row_col    <- if ("imagerow" %in% cc) "imagerow" else cc[1]
+          col_col    <- if ("imagecol" %in% cc) "imagecol" else cc[2]
+          coords_mat <- as.matrix(coords[, c(row_col, col_col)])
+
+          # ── Filter L-R pairs to genes present in this ROI ───────────────────────
+          lrpair_avail <- dplyr::filter(lrpair,
+                                        from %in% avail_genes,
+                                        to   %in% avail_genes)
+
+          incProgress(0.1, detail = paste(nrow(lrpair_avail), "valid L-R pairs found"))
+
+          if (nrow(lrpair_avail) == 0) {
+            removeNotification(id = "lr_running")
+            showNotification("No L-R pairs found where both genes are expressed in this ROI.",
+                            type = "warning")
+            return()
+          }
+
+          k_nbrs <- input$lr_k_neighbors
+
+          # ── Pre-compute KNN once ─────────────────────────────────────────────────
+          # (reused for every ligand — big speedup vs computing per pair)
+          knn_nb <- spdep::knn2nb(spdep::knearneigh(coords_mat, k = k_nbrs))
+
+          # ── Cache spatial lag for all unique ligands ─────────────────────────────
+          unique_L <- unique(lrpair_avail$from)
+          incProgress(0.15, detail = paste("Spatial lag for", length(unique_L), "ligands"))
+
+          L_lag_cache <- list()
+          for (gene in unique_L) {
+            expr <- as.numeric(counts_mat[gene, ])
+            lag  <- numeric(n_spots)
+            for (i in seq_len(n_spots)) {
+              nb_idx  <- knn_nb[[i]]
+              if (length(nb_idx) > 0) {
+                w       <- ifelse(seq_along(nb_idx) <= 6, 1, 0.5)
+                lag[i]  <- (expr[i] + sum(expr[nb_idx] * w)) / (1 + sum(w))
+              } else {
+                lag[i]  <- expr[i]
+              }
+            }
+            L_lag_cache[[gene]] <- lag
+          }
+
+          # ── Geometric mean score: spot × pair matrix ─────────────────────────────
+          n_pairs    <- nrow(lrpair_avail)
+          pair_names <- paste0(lrpair_avail$from, "_x_", lrpair_avail$to)
+
+          incProgress(0.3, detail = paste("Scoring", n_pairs, "L-R pairs"))
+
+          score_mat <- matrix(0, nrow = n_spots, ncol = n_pairs,
+                              dimnames = list(spot_names, pair_names))
+
+          for (j in seq_len(n_pairs)) {
+            L_lag  <- L_lag_cache[[ lrpair_avail$from[j] ]]
+            R_expr <- as.numeric(counts_mat[ lrpair_avail$to[j], ])
+            score_mat[, j] <- sqrt(L_lag * R_expr)   # geometric mean
+          }
+
+          # ── Correlate spot-level scores with RCTD proportions ────────────────────
+          incProgress(0.65, detail = "Correlating with RCTD cell types")
+
+          rctd_sub   <- rctd_props[spot_names, , drop = FALSE]
+          cell_types <- colnames(rctd_sub)
+
+          # cor_mat: pairs × cell_types
+          cor_mat <- matrix(NA_real_, nrow = n_pairs, ncol = length(cell_types),
+                            dimnames = list(pair_names, cell_types))
+
+          for (ct in cell_types) {
+            ct_vec <- rctd_sub[, ct]
+            if (sd(ct_vec, na.rm = TRUE) < 1e-10) next   # skip invariant columns
+            for (j in seq_len(n_pairs)) {
+              sv <- score_mat[, j]
+              if (sd(sv, na.rm = TRUE) > 1e-10) {
+                cor_mat[j, ct] <- cor(sv, ct_vec, use = "complete.obs")
+              }
+            }
+          }
+
+                    # ── Summarise: one row per pair ──────────────────────────────────────────
+          # ── Per-gene correlations with cell types (sender / receiver) ─────────────────
+          incProgress(0.75, detail = "Correlating L and R genes with cell types separately")
+
+          rctd_sub   <- rctd_props[spot_names, , drop = FALSE]
+          cell_types <- colnames(rctd_sub)
+
+          # Helper: best-correlated cell type for any numeric vector
+          best_corr_celltype <- function(vec, rctd_mat, cell_types) {
+            if (sd(vec, na.rm = TRUE) < 1e-10) return(list(ct = NA, r = NA))
+            cors <- sapply(cell_types, function(ct) {
+              cv <- rctd_mat[, ct]
+              if (sd(cv, na.rm = TRUE) < 1e-10) return(NA)
+              cor(vec, cv, use = "complete.obs")
+            })
+            best <- which.max(abs(cors))
+            if (length(best) == 0) return(list(ct = NA, r = NA))
+            list(ct = cell_types[best], r = round(cors[best], 3))
+          }
+
+          # ── Cache per-gene cell-type correlations (reuse across pairs) ────────────────
+          # L genes (use lagged expression — matches what goes into score)
+          L_ct_cache <- list()
+          for (gene in unique(lrpair_avail$from)) {
+            L_ct_cache[[gene]] <- best_corr_celltype(L_lag_cache[[gene]], rctd_sub, cell_types)
+          }
+
+          # R genes (raw expression)
+          R_ct_cache <- list()
+          for (gene in unique(lrpair_avail$to)) {
+            expr <- as.numeric(counts_mat[gene, ])
+            R_ct_cache[[gene]] <- best_corr_celltype(expr, rctd_sub, cell_types)
+          }
+
+          # ── LR score correlation with cell types ─────────────────────────────────────
+          incProgress(0.85, detail = "Building summary table")
+
+          LR_ct_name <- character(n_pairs)
+          LR_ct_corr <- numeric(n_pairs)
+
+          for (j in seq_len(n_pairs)) {
+            res <- best_corr_celltype(score_mat[, j], rctd_sub, cell_types)
+            LR_ct_name[j] <- if (!is.na(res$ct)) res$ct else "—"
+            LR_ct_corr[j] <- if (!is.na(res$r))  res$r  else NA
+          }
+
+          # ── Build summary table ───────────────────────────────────────────────────────
+          mean_scores <- colMeans(score_mat, na.rm = TRUE)
+
+          summary_df <- data.frame(
+            LR_Pair      = pair_names,
+            Ligand       = lrpair_avail$from,
+            Receptor     = lrpair_avail$to,
+            Mean_Score   = round(mean_scores, 4),
+            # Sender: which cell type co-localises with ligand expression
+            L_CellType   = sapply(lrpair_avail$from, function(g) {
+              ct <- L_ct_cache[[g]]$ct; if (is.na(ct)) "—" else ct }),
+            L_Corr       = sapply(lrpair_avail$from, function(g) L_ct_cache[[g]]$r),
+            # Receiver: which cell type co-localises with receptor expression  
+            R_CellType   = sapply(lrpair_avail$to, function(g) {
+              ct <- R_ct_cache[[g]]$ct; if (is.na(ct)) "—" else ct }),
+            R_Corr       = sapply(lrpair_avail$to, function(g) R_ct_cache[[g]]$r),
+            # Combined: LR score enrichment
+            LR_CellType  = LR_ct_name,
+            LR_Corr      = LR_ct_corr,
+            stringsAsFactors = FALSE
+          ) |> dplyr::arrange(dplyr::desc(Mean_Score))
+
+
+
+          lr_results(summary_df)
+          lr_score_matrix(score_mat)
+
+          # Populate dropdown with top 50 pairs
+          updateSelectInput(session, "lr_selected_pair",
+                            choices = head(summary_df$LR_Pair, 50))
+
+          incProgress(1, detail = "Done")
+          removeNotification(id = "lr_running")
+
+          lr_status_msg(
+            paste0("✓ ", nrow(summary_df), " L-R pairs analyzed | ",
+                  length(shared_spots), " spots | Group: ", grp, "\n",
+                  "Enriched cell types in top spots: ",
+                  paste(top_enriched_ct, collapse = ", "))
+          )
+          showNotification(paste0("✓ L-R analysis complete: ", nrow(summary_df), " pairs"),
+                          type = "message")
+
+        }, error = function(e) {
+          removeNotification(id = "lr_running")
+          showNotification(paste("L-R Error:", e$message), type = "error", duration = 15)
+        })
+      })
+    })
+
+    # ── Status text ────────────────────────────────────────────────────────────────
+    output$lr_status <- renderText({
+      req(lr_status_msg())
+      lr_status_msg()
+    })
+
+    # ── Results table ──────────────────────────────────────────────────────────────
+    output$lr_table <- renderTable({
+      req(lr_results())
+      head(lr_results(), input$lr_top_n) |>
+        dplyr::select(
+          LR_Pair, Mean_Score,
+          L_CellType, L_Corr,      # sender
+          R_CellType, R_Corr,      # receiver
+          LR_CellType, LR_Corr
+        )     # combined)
+    }, rownames = FALSE, striped = TRUE, hover = TRUE,
+        digits = 3)
+
+    # ── Spatial map of selected L-R pair ──────────────────────────────────────────
+    output$lr_spatial_plot <- renderPlot({
+      req(lr_score_matrix(), input$lr_selected_pair, seurat_data())
+
+      pair    <- input$lr_selected_pair
+      smat    <- lr_score_matrix()
+
+      if (!(pair %in% colnames(smat))) {
+        plot.new()
+        text(0.5, 0.5, "Select a pair above to map", cex = 1.2, col = "grey60")
+        return()
+      }
+
+      grp   <- input$lr_group
+      spots <- if (grp == "group1") group1_spots() else group2_spots()
+      spots <- intersect(spots, rownames(smat))
+
+      seurat_sub <- subset(seurat_data(), cells = spots)
+      DefaultAssay(seurat_sub) <- "Spatial"
+      seurat_sub@meta.data[["lr_score"]] <- smat[spots, pair]
+
+      SpatialFeaturePlot(seurat_sub,
+                        features    = "lr_score",
+                        alpha       = c(0.8, 1),
+                        image.alpha = 0.1) +
+        ggplot2::scale_fill_gradient(low = "grey90", high = "red",
+                                      na.value = "grey50",
+                                      name = "Score") +
+        ggplot2::ggtitle(gsub("_x_", " × ", pair)) +
+        ggplot2::theme(plot.title = ggplot2::element_text(size = 11, face = "bold"))
+    })
+
+    # ── Download ───────────────────────────────────────────────────────────────────
+    output$dl_lr_results <- downloadHandler(
+      filename = function() paste0("LR_colocalization_", input$lr_group, "_",
+                                    format(Sys.time(), "%Y%m%d"), ".csv"),
+      content  = function(file) {
+        req(lr_results())
+        write.csv(lr_results(), file, row.names = FALSE)
+      }
+    )
 
     # Clustering
     observeEvent(input$run_clustering, {
