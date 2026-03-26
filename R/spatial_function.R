@@ -1111,7 +1111,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                         h5("Top L-R Pairs by Mean Score"),
                                         tags$p(style = "font-size: 11px; color: #7f8c8d; margin-bottom: 8px;",
                                               "Score = geometric mean of spatially-lagged Ligand × Receptor. ",
-                                              "Correlation = Pearson r between spot-level score and top RCTD cell type."),
+                                              "Correlation = Spearman r between spot-level score and top RCTD cell type."),
 
                                         numericInput("lr_top_n", "Show top N pairs:",
                                                     value = 20, min = 5, max = 200, step = 5),
@@ -2390,7 +2390,11 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
             for (i in seq_len(n_spots)) {
               nb_idx  <- knn_nb[[i]]
               if (length(nb_idx) > 0) {
-                w       <- ifelse(seq_along(nb_idx) <= 6, 1, 0.5)
+                # w       <- ifelse(seq_along(nb_idx) <= 6, 1, 0.5) ## this is too strict cut-off
+                ## to make the neighborhood region better, closer neighbors means higher weight and farther neighbors mean lower weight. This is a Gaussian kernel (smooth decay)
+                dists <- sqrt(rowSums((coords_mat[nb_idx, ] - coords_mat[i, ])^2))
+                sigma <- median(dists)
+                w <- exp(-dists^2 / (2 * sigma^2))
                 lag[i]  <- (expr[i] + sum(expr[nb_idx] * w)) / (1 + sum(w))
               } else {
                 lag[i]  <- expr[i]
@@ -2430,7 +2434,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
             for (j in seq_len(n_pairs)) {
               sv <- score_mat[, j]
               if (sd(sv, na.rm = TRUE) > 1e-10) {
-                cor_mat[j, ct] <- cor(sv, ct_vec, use = "complete.obs")
+                cor_mat[j, ct] <- cor(sv, ct_vec, use = "complete.obs", method = "spearman")
               }
             }
           }
@@ -2448,9 +2452,10 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
             cors <- sapply(cell_types, function(ct) {
               cv <- rctd_mat[, ct]
               if (sd(cv, na.rm = TRUE) < 1e-10) return(NA)
-              cor(vec, cv, use = "complete.obs")
+              cor(vec, cv, use = "complete.obs", method = "spearman")
             })
-            best <- which.max(abs(cors))
+            cors[cors < 0] <- NA
+            best <- which.max(cors)
             if (length(best) == 0) return(list(ct = NA, r = NA))
             list(ct = cell_types[best], r = round(cors[best], 3))
           }
