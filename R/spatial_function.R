@@ -1423,6 +1423,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
     # Increase file upload size limit (default is 5MB, set to 500MB)
     options(shiny.maxRequestSize = 500*1024^2)  # 500MB in bytes
+    options(future.globals.maxSize = 8000 * 1024^2) 
     # ── Fix for Seurat FindMarkers future globals error ──
 
 
