@@ -33,6 +33,7 @@
 #'   FindClusters
 #'   NormalizeData
 #'   ScaleData
+#'   DT
 #'
 #' @importFrom dplyr %>% filter
 #' @importFrom grDevices as.raster colorRampPalette dev.off png rainbow
