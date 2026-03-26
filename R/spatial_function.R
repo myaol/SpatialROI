@@ -2553,7 +2553,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
     # ── Spatial map of selected L-R pair ──────────────────────────────────────────
     output$lr_spatial_plot <- renderPlot({
-      req(lr_score_matrix(), input$lr_selected_pair, seurat_data())
+
+      req(lr_score_matrix(), input$lr_selected_pair)
 
       pair    <- input$lr_selected_pair
       smat    <- lr_score_matrix()
