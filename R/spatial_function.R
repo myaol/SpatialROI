@@ -1051,86 +1051,88 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                       downloadButton("dl_deconv", "⬇ Download Proportions",
                                                     class = "btn btn-success btn-sm",
                                                     style = "margin-top: 8px;")
-                                    ),
-
-                                    # ── L-R Colocalization Section ────────────────────────────────────────────────
-                                    # Shows only once RCTD has produced results (same conditional gate)
-                                    conditionalPanel(
-                                      condition = "output.deconv_results_available",
-                                      div(class = "control-section",
-                                          h4("🔗 L-R Colocalization"),
-                                          tags$p(style = "font-size: 12px; color: #7f8c8d; margin-bottom: 10px;",
-                                                "Identify ligand-receptor interactions in your ROI. ",
-                                                "Scores computed spot-by-spot with spatial lag, then summarised by region."),
-
-                                          # ── Group selector ──────────────────────────────────────────────────────
-                                          selectInput("lr_group", "Analyze group:",
-                                                      choices = c("Group 1" = "group1", "Group 2" = "group2")),
-
-                                          # ── L-R database source ─────────────────────────────────────────────────
-                                          h5("L-R Database"),
-                                          radioButtons("lr_db_source", NULL,
-                                                      choices = c("Use built-in database" = "builtin",
-                                                                  "Upload my own (.tsv)"  = "upload"),
-                                                      selected = "builtin"),
-
-                                          conditionalPanel(
-                                            condition = "input.lr_db_source == 'upload'",
-                                            fileInput("upload_lr_db", "Select lr_network .tsv file",
-                                                      accept = c(".tsv", ".txt")),
-                                            tags$p(style = "font-size: 11px; color: #7f8c8d;",
-                                                  "Required columns: from, to, database")
-                                          ),
-
-                                          # ── Database filter ─────────────────────────────────────────────────────
-                                          checkboxGroupInput("lr_db_filter", "Include databases:",
-                                                            choices  = c("KEGG"                 = "kegg",
-                                                                          "Guide to Pharmacology" = "guide2pharmacology",
-                                                                          "Ramilowski"            = "ramilowski"),
-                                                            selected = c("kegg", "guide2pharmacology", "ramilowski")),
-
-                                          # ── Spatial lag neighbors ───────────────────────────────────────────────
-                                          sliderInput("lr_k_neighbors", "KNN neighbors for spatial lag:",
-                                                      min = 6, max = 18, value = 18, step = 6),
-
-                                          # ── Run button ──────────────────────────────────────────────────────────
-                                          actionButton("run_lr", "🔗 Run L-R Colocalization",
-                                                      class = "btn btn-primary btn-block",
-                                                      style = "margin-top: 10px;"),
-                                          tags$p(style = "font-size: 11px; color: #e67e22; margin-top: 5px;",
-                                                "⚠️ Run RCTD deconvolution first — correlations need cell-type proportions."),
-
-                                          verbatimTextOutput("lr_status"),
-
-                                          # ── Results ─────────────────────────────────────────────────────────────
-                                          conditionalPanel(
-                                            condition = "output.lr_results_available",
-                                            tags$hr(),
-                                            h5("Top L-R Pairs by Mean Score"),
-                                            tags$p(style = "font-size: 11px; color: #7f8c8d; margin-bottom: 8px;",
-                                                  "Score = geometric mean of spatially-lagged Ligand × Receptor. ",
-                                                  "Correlation = Pearson r between spot-level score and top RCTD cell type."),
-
-                                            numericInput("lr_top_n", "Show top N pairs:",
-                                                        value = 20, min = 5, max = 200, step = 5),
-
-                                            tableOutput("lr_table"),
-
-                                            downloadButton("dl_lr_results", "⬇ Download Full Results",
-                                                          class = "btn btn-success btn-sm",
-                                                          style = "margin-top: 8px;"),
-
-                                            tags$hr(),
-                                            h5("Spatial Map — Selected Pair"),
-                                            selectInput("lr_selected_pair",
-                                                        "Select L-R pair to map:",
-                                                        choices = NULL),
-                                            plotOutput("lr_spatial_plot", height = "300px")
-                                          )
-                                      )
-                                    ),  # end LR section
-
+                                    )
                                 ),
+
+
+                                # ── L-R Colocalization Section ────────────────────────────────────────────────
+                                # Shows only once RCTD has produced results (same conditional gate)
+                                conditionalPanel(
+                                  condition = "output.deconv_results_available",
+                                  div(class = "control-section",
+                                      h4("🔗 L-R Colocalization"),
+                                      tags$p(style = "font-size: 12px; color: #7f8c8d; margin-bottom: 10px;",
+                                            "Identify ligand-receptor interactions in your ROI. ",
+                                            "Scores computed spot-by-spot with spatial lag, then summarised by region."),
+
+                                      # ── Group selector ──────────────────────────────────────────────────────
+                                      selectInput("lr_group", "Analyze group:",
+                                                  choices = c("Group 1" = "group1", "Group 2" = "group2")),
+
+                                      # ── L-R database source ─────────────────────────────────────────────────
+                                      h5("L-R Database"),
+                                      radioButtons("lr_db_source", NULL,
+                                                  choices = c("Use built-in database" = "builtin",
+                                                              "Upload my own (.tsv)"  = "upload"),
+                                                  selected = "builtin"),
+
+                                      conditionalPanel(
+                                        condition = "input.lr_db_source == 'upload'",
+                                        fileInput("upload_lr_db", "Select lr_network .tsv file",
+                                                  accept = c(".tsv", ".txt")),
+                                        tags$p(style = "font-size: 11px; color: #7f8c8d;",
+                                              "Required columns: from, to, database")
+                                      ),
+
+                                      # ── Database filter ─────────────────────────────────────────────────────
+                                      checkboxGroupInput("lr_db_filter", "Include databases:",
+                                                        choices  = c("KEGG"                 = "kegg",
+                                                                      "Guide to Pharmacology" = "guide2pharmacology",
+                                                                      "Ramilowski"            = "ramilowski"),
+                                                        selected = c("kegg", "guide2pharmacology", "ramilowski")),
+
+                                      # ── Spatial lag neighbors ───────────────────────────────────────────────
+                                      sliderInput("lr_k_neighbors", "KNN neighbors for spatial lag:",
+                                                  min = 6, max = 18, value = 18, step = 6),
+
+                                      # ── Run button ──────────────────────────────────────────────────────────
+                                      actionButton("run_lr", "🔗 Run L-R Colocalization",
+                                                  class = "btn btn-primary btn-block",
+                                                  style = "margin-top: 10px;"),
+                                      tags$p(style = "font-size: 11px; color: #e67e22; margin-top: 5px;",
+                                            "⚠️ Run RCTD deconvolution first — correlations need cell-type proportions."),
+
+                                      verbatimTextOutput("lr_status"),
+
+                                      # ── Results ─────────────────────────────────────────────────────────────
+                                      conditionalPanel(
+                                        condition = "output.lr_results_available",
+                                        tags$hr(),
+                                        h5("Top L-R Pairs by Mean Score"),
+                                        tags$p(style = "font-size: 11px; color: #7f8c8d; margin-bottom: 8px;",
+                                              "Score = geometric mean of spatially-lagged Ligand × Receptor. ",
+                                              "Correlation = Pearson r between spot-level score and top RCTD cell type."),
+
+                                        numericInput("lr_top_n", "Show top N pairs:",
+                                                    value = 20, min = 5, max = 200, step = 5),
+
+                                        tableOutput("lr_table"),
+
+                                        downloadButton("dl_lr_results", "⬇ Download Full Results",
+                                                      class = "btn btn-success btn-sm",
+                                                      style = "margin-top: 8px;"),
+
+                                        tags$hr(),
+                                        h5("Spatial Map — Selected Pair"),
+                                        selectInput("lr_selected_pair",
+                                                    "Select L-R pair to map:",
+                                                    choices = NULL),
+                                        plotOutput("lr_spatial_plot", height = "300px")
+                                      )
+                                  )
+                                ),  # end LR section
+
+                         
                       ),
 
                       # Gene Set content - MODIFIED: Added species selection
@@ -2282,7 +2284,9 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     observeEvent(input$run_lr, {
 
       # ── Guards ─────────────────────────────────────────────────────────────────
-      req(seurat_data())   # adjust if your reactive is named differently
+
+      req(seurat_obj)
+
 
       if (is.null(deconv_results())) {
         showNotification("Run RCTD first — L-R correlation needs cell-type proportions.", type = "error")
@@ -2323,7 +2327,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         tryCatch({
 
           # ── Subset Seurat to group spots ────────────────────────────────────────
-          seurat_obj <- seurat_data()   # adjust name if needed
+
+          seurat_obj_lr <- seurat_obj   # adjust name if needed
           DefaultAssay(seurat_obj) <- "Spatial"
           seurat_sub   <- subset(seurat_obj, cells = shared_spots)
           counts_mat   <- seurat_sub@assays$Spatial@counts   # genes × spots
@@ -2527,7 +2532,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           LR_CellType, LR_Corr
         )     # combined)
     }, rownames = FALSE, striped = TRUE, hover = TRUE,
-        digits = 3)
+      digits = 3)
 
     # ── Spatial map of selected L-R pair ──────────────────────────────────────────
     output$lr_spatial_plot <- renderPlot({
@@ -2546,7 +2551,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       spots <- if (grp == "group1") group1_spots() else group2_spots()
       spots <- intersect(spots, rownames(smat))
 
-      seurat_sub <- subset(seurat_data(), cells = spots)
+
+      seurat_sub <- subset(seurat_obj, cells = spots)
       DefaultAssay(seurat_sub) <- "Spatial"
       seurat_sub@meta.data[["lr_score"]] <- smat[spots, pair]
 
