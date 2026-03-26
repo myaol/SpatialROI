@@ -1092,8 +1092,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                                         selected = c("kegg", "guide2pharmacology", "ramilowski")),
 
                                       # ── Spatial lag neighbors ───────────────────────────────────────────────
-                                      sliderInput("lr_k_neighbors", "KNN neighbors for spatial lag:",
-                                                  min = 6, max = 18, value = 18, step = 6),
+                                      sliderInput("lr_k_neighbors", "Neighborhood size (for spatial smoothing):",
+                                                  min = 6, max = 18, value = 12, step = 6),
 
                                       # ── Run button ──────────────────────────────────────────────────────────
                                       actionButton("run_lr", "🔗 Run L-R Colocalization",
@@ -1116,7 +1116,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                         numericInput("lr_top_n", "Show top N pairs:",
                                                     value = 20, min = 5, max = 200, step = 5),
 
-                                        tableOutput("lr_table"),
+                              
+                                        DT::dataTableOutput("lr_table"),
 
                                         downloadButton("dl_lr_results", "⬇ Download Full Results",
                                                       class = "btn btn-success btn-sm",
@@ -2358,6 +2359,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           row_col    <- if ("imagerow" %in% cc) "imagerow" else cc[1]
           col_col    <- if ("imagecol" %in% cc) "imagecol" else cc[2]
           coords_mat <- as.matrix(coords[, c(row_col, col_col)])
+          ## keep only within region spots so the neirghborhood won't be outsie the region
+          coords_mat <- coords_mat[spot_names, , drop = FALSE]
 
           # ── Filter L-R pairs to genes present in this ROI ───────────────────────
           lrpair_avail <- dplyr::filter(lrpair,
@@ -2544,17 +2547,17 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     })
 
     # ── Results table ──────────────────────────────────────────────────────────────
-    output$lr_table <- renderTable({
+
+    output$lr_table <- DT::renderDataTable({
       req(lr_results())
-      head(lr_results(), input$lr_top_n) |>
-        dplyr::select(
-          LR_Pair, Mean_Score,
-          L_CellType, L_Corr,      # sender
-          R_CellType, R_Corr,      # receiver
-          LR_CellType, LR_Corr
-        )     # combined)
-    }, rownames = FALSE, striped = TRUE, hover = TRUE,
-      digits = 3)
+      df <- head(lr_results(), input$lr_top_n)
+      df$Mean_Score <- round(df$Mean_Score, 4)
+      df$L_Corr     <- round(df$L_Corr, 3)
+      df$R_Corr     <- round(df$R_Corr, 3)
+      df$LR_Corr    <- round(df$LR_Corr, 3)
+      df[, c("LR_Pair","Mean_Score","L_CellType","L_Corr",
+            "R_CellType","R_Corr","LR_CellType","LR_Corr")]
+    }, rownames = FALSE, options = list(scrollX = TRUE, pageLength = 20))
 
     # ── Spatial map of selected L-R pair ──────────────────────────────────────────
     output$lr_spatial_plot <- renderPlot({
@@ -2586,6 +2589,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                       DefaultAssay(seurat_obj)
 
       seurat_sub <- subset(seurat_obj, cells = spots)
+      seurat_sub <- UpdateSeuratObject(seurat_sub)
       DefaultAssay(seurat_sub) <- spatial_assay
       seurat_sub@meta.data[["lr_score"]] <- smat[spots, pair]
 
