@@ -2259,13 +2259,17 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     # ── Helper: load and filter L-R database ──────────────────────────────────────
     get_lr_pairs <- reactive({
       if (input$lr_db_source == "builtin") {
-        lr_path <- "data/lr_network_unique.tsv"   # same data/ folder as your .rds refs
-        if (!file.exists(lr_path)) {
+
+
+        lr_path <- system.file("extdata", "lr_network_unique.tsv", package = "SpatialScopeDev")
+        if (lr_path == "" || !file.exists(lr_path)) {
           showNotification(
-            "Built-in L-R database not found. Place lr_network_unique.tsv in data/.",
+            "Built-in L-R database not found in package extdata. Reinstall the package.",
             type = "error", duration = 10)
           return(NULL)
         }
+
+
         lrpair <- read.table(lr_path, header = TRUE, sep = "\t", stringsAsFactors = FALSE)
       } else {
         req(input$upload_lr_db)
