@@ -2332,16 +2332,28 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
           # ── Subset Seurat to group spots ────────────────────────────────────────
 
-          seurat_obj_lr <- seurat_obj   # adjust name if needed
-          DefaultAssay(seurat_obj) <- "Spatial"
-          seurat_sub   <- subset(seurat_obj, cells = shared_spots)
-          counts_mat   <- seurat_sub@assays$Spatial@counts   # genes × spots
+           # adjust name if needed
+          seurat_lr <- seurat_obj
+          spatial_assay <- if ("Spatial" %in% names(seurat_lr@assays)) {
+            "Spatial"
+          } else if ("SCT" %in% names(seurat_lr@assays)) {
+            "SCT"
+          } else {
+            DefaultAssay(seurat_lr)
+          }
+
+          DefaultAssay(seurat_lr) <- spatial_assay
+          seurat_sub_lr <- subset(seurat_lr, cells = shared_spots)
+          counts_mat   <- seurat_sub_lr@assays[[spatial_assay]]@counts
           avail_genes  <- rownames(counts_mat)
           n_spots      <- ncol(counts_mat)
           spot_names   <- colnames(counts_mat)
 
+
+
+
           # ── Spatial coordinates ─────────────────────────────────────────────────
-          coords     <- GetTissueCoordinates(seurat_sub)
+          coords     <- GetTissueCoordinates(seurat_sub_lr)
           cc         <- colnames(coords)
           row_col    <- if ("imagerow" %in% cc) "imagerow" else cc[1]
           col_col    <- if ("imagecol" %in% cc) "imagecol" else cc[2]
@@ -2503,12 +2515,13 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           incProgress(1, detail = "Done")
           removeNotification(id = "lr_running")
 
+          top_lr_pairs <- head(summary_df$LR_Pair, 3)
           lr_status_msg(
             paste0("✓ ", nrow(summary_df), " L-R pairs analyzed | ",
                   length(shared_spots), " spots | Group: ", grp, "\n",
-                  "Enriched cell types in top spots: ",
-                  paste(top_enriched_ct, collapse = ", "))
+                  "Top pairs: ", paste(top_lr_pairs, collapse = ", "))
           )
+
           showNotification(paste0("✓ L-R analysis complete: ", nrow(summary_df), " pairs"),
                           type = "message")
 
@@ -2555,21 +2568,34 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       spots <- if (grp == "group1") group1_spots() else group2_spots()
       spots <- intersect(spots, rownames(smat))
 
+      if (length(spots) == 0) {
+        plot.new()
+        text(0.5, 0.5, "No spots found for this group", cex = 1.2, col = "grey60")
+        return()
+      }
+
+    # Auto-detect assay
+      spatial_assay <- if ("Spatial" %in% names(seurat_obj@assays)) "Spatial" else
+                      if ("SCT"     %in% names(seurat_obj@assays)) "SCT"     else
+                      DefaultAssay(seurat_obj)
 
       seurat_sub <- subset(seurat_obj, cells = spots)
-      DefaultAssay(seurat_sub) <- "Spatial"
+      DefaultAssay(seurat_sub) <- spatial_assay
       seurat_sub@meta.data[["lr_score"]] <- smat[spots, pair]
 
       SpatialFeaturePlot(seurat_sub,
                         features    = "lr_score",
                         alpha       = c(0.8, 1),
                         image.alpha = 0.1) +
-        ggplot2::scale_fill_gradient(low = "grey90", high = "red",
-                                      na.value = "grey50",
-                                      name = "Score") +
-        ggplot2::ggtitle(gsub("_x_", " × ", pair)) +
+        ggplot2::scale_fill_gradient(low  = "grey90",
+                                    high = "red",
+                                    na.value = "grey50",
+                                    name = "Score") +
+        ggplot2::ggtitle(gsub("_x_", " \u00d7 ", pair)) +
         ggplot2::theme(plot.title = ggplot2::element_text(size = 11, face = "bold"))
     })
+
+
 
     # ── Download ───────────────────────────────────────────────────────────────────
     output$dl_lr_results <- downloadHandler(
