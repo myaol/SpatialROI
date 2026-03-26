@@ -1063,27 +1063,26 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                   div(class = "control-section",
                                       h4("🔗 L-R Colocalization"),
                                       tags$p(style = "font-size: 12px; color: #7f8c8d; margin-bottom: 10px;",
-                                            "Identify ligand-receptor interactions in your ROI. ",
-                                            "Scores computed spot-by-spot with spatial lag, then summarised by region."),
+                                            "Identify ligand-receptor interactions in your ROI. "),
 
                                       # ── Group selector ──────────────────────────────────────────────────────
                                       selectInput("lr_group", "Analyze group:",
                                                   choices = c("Group 1" = "group1", "Group 2" = "group2")),
 
-                                      # ── L-R database source ─────────────────────────────────────────────────
-                                      h5("L-R Database"),
-                                      radioButtons("lr_db_source", NULL,
-                                                  choices = c("Use built-in database" = "builtin",
-                                                              "Upload my own (.tsv)"  = "upload"),
-                                                  selected = "builtin"),
+                                      # # ── L-R database source ─────────────────────────────────────────────────
+                                      # h5("L-R Database"),
+                                      # radioButtons("lr_db_source", NULL,
+                                      #             choices = c("Use built-in database" = "builtin",
+                                      #                         "Upload my own (.tsv)"  = "upload"),
+                                      #             selected = "builtin"),
 
-                                      conditionalPanel(
-                                        condition = "input.lr_db_source == 'upload'",
-                                        fileInput("upload_lr_db", "Select lr_network .tsv file",
-                                                  accept = c(".tsv", ".txt")),
-                                        tags$p(style = "font-size: 11px; color: #7f8c8d;",
-                                              "Required columns: from, to, database")
-                                      ),
+                                      # conditionalPanel(
+                                      #   condition = "input.lr_db_source == 'upload'",
+                                      #   fileInput("upload_lr_db", "Select lr_network .tsv file",
+                                      #             accept = c(".tsv", ".txt")),
+                                      #   tags$p(style = "font-size: 11px; color: #7f8c8d;",
+                                      #         "Required columns: from, to, database")
+                                      # ),
 
                                       # ── Database filter ─────────────────────────────────────────────────────
                                       checkboxGroupInput("lr_db_filter", "Include databases:",
@@ -1111,8 +1110,9 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                         tags$hr(),
                                         h5("Top L-R Pairs by Mean Score"),
                                         tags$p(style = "font-size: 11px; color: #7f8c8d; margin-bottom: 8px;",
-                                              "Score = geometric mean of spatially-lagged Ligand × Receptor. ",
-                                              "Correlation = Spearman r between spot-level score and top RCTD cell type."),
+                                              "Ranked by interaction strength in selected ROI. "),
+                                             # "Score = geometric mean of spatially-lagged Ligand × Receptor. ",
+                                             # "Correlation = Spearman r between spot-level score and top RCTD cell type."),
 
                                         numericInput("lr_top_n", "Show top N pairs:",
                                                     value = 20, min = 5, max = 200, step = 5),
@@ -2253,26 +2253,14 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     outputOptions(output, "lr_results_available", suspendWhenHidden = FALSE)
 
     # ── Helper: load and filter L-R database ──────────────────────────────────────
+
     get_lr_pairs <- reactive({
-      if (input$lr_db_source == "builtin") {
-
-
-        lr_path <- system.file("extdata", "lr_network_unique.tsv", package = "SpatialScopeDev")
-        if (lr_path == "" || !file.exists(lr_path)) {
-          showNotification(
-            "Built-in L-R database not found in package extdata. Reinstall the package.",
-            type = "error", duration = 10)
-          return(NULL)
-        }
-
-
-        lrpair <- read.table(lr_path, header = TRUE, sep = "\t", stringsAsFactors = FALSE)
-      } else {
-        req(input$upload_lr_db)
-        lrpair <- read.table(input$upload_lr_db$datapath,
-                              header = TRUE, sep = "\t", stringsAsFactors = FALSE)
+      lr_path <- system.file("extdata", "lr_network_unique.tsv", package = "SpatialScopeDev")
+      if (lr_path == "" || !file.exists(lr_path)) {
+        showNotification("L-R database not found.", type = "error", duration = 10)
+        return(NULL)
       }
-
+      lrpair <- read.table(lr_path, header = TRUE, sep = "\t", stringsAsFactors = FALSE)
       selected_dbs <- input$lr_db_filter
       if (length(selected_dbs) > 0 && "database" %in% colnames(lrpair)) {
         lrpair <- dplyr::filter(lrpair, database %in% selected_dbs)
@@ -2543,7 +2531,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
     output$lr_table <- DT::renderDataTable({
       req(lr_results())
-      df <- head(lr_results(), input$lr_top_n)
+      df <- head(lr_results(), 20)
       df$Mean_Score <- round(df$Mean_Score, 4)
       df$L_Corr     <- round(df$L_Corr, 3)
       df$R_Corr     <- round(df$R_Corr, 3)
