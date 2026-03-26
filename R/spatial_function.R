@@ -1123,13 +1123,6 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                         downloadButton("dl_lr_results", "⬇ Download Full Results",
                                                       class = "btn btn-success btn-sm",
                                                       style = "margin-top: 8px;"),
-
-                                        tags$hr(),
-                                        h5("Spatial Map — Selected Pair"),
-                                        selectInput("lr_selected_pair",
-                                                    "Select L-R pair to map:",
-                                                    choices = NULL),
-                                        plotOutput("lr_spatial_plot", height = "300px")
                                       )
                                   )
                                 ),  # end LR section
@@ -2517,9 +2510,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           lr_results(summary_df)
           lr_score_matrix(score_mat)
 
-          # Populate dropdown with top 50 pairs
-          updateSelectInput(session, "lr_selected_pair",
-                            choices = head(summary_df$LR_Pair, 50))
+
 
           incProgress(1, detail = "Done")
           removeNotification(id = "lr_running")
@@ -2560,57 +2551,6 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
             "R_CellType","R_Corr","LR_CellType","LR_Corr")]
     }, rownames = FALSE, options = list(scrollX = TRUE, pageLength = 20))
 
-    # ── Spatial map of selected L-R pair ──────────────────────────────────────────
-    output$lr_spatial_plot <- renderPlot({
-
-      req(lr_score_matrix(), input$lr_selected_pair)
-
-      pair    <- input$lr_selected_pair
-      smat    <- lr_score_matrix()
-
-      if (!(pair %in% colnames(smat))) {
-        plot.new()
-        text(0.5, 0.5, "Select a pair above to map", cex = 1.2, col = "grey60")
-        return()
-      }
-
-      grp   <- input$lr_group
-      spots <- if (grp == "group1") group1_spots() else group2_spots()
-      spots <- intersect(spots, rownames(smat))
-
-      if (length(spots) == 0) {
-        plot.new()
-        text(0.5, 0.5, "No spots found for this group", cex = 1.2, col = "grey60")
-        return()
-      }
-
-    # Auto-detect assay
-      spatial_assay <- if ("Spatial" %in% names(seurat_obj@assays)) "Spatial" else
-                      if ("SCT"     %in% names(seurat_obj@assays)) "SCT"     else
-                      DefaultAssay(seurat_obj)
-
-      # Add score to full object — non-group spots get NA (shown as grey)
-      spatial_assay <- if ("Spatial" %in% names(seurat_obj@assays)) "Spatial" else
-                      if ("SCT"     %in% names(seurat_obj@assays)) "SCT"     else
-                      DefaultAssay(seurat_obj)
-
-      seurat_obj$lr_score <- NA
-      seurat_obj$lr_score[spots] <- smat[spots, pair]
-
-      DefaultAssay(seurat_obj) <- spatial_assay
-
-      SpatialFeaturePlot(seurat_obj,
-                        features    = "lr_score",
-                        alpha       = c(0.8, 1),
-                        image.alpha = 0.1) +
-        ggplot2::scale_fill_gradient(low  = "grey90",
-                                    high = "red",
-                                    na.value = "grey50",
-                                    name = "Score") +
-        ggplot2::ggtitle(gsub("_x_", " \u00d7 ", pair)) +
-        ggplot2::theme(plot.title = ggplot2::element_text(size = 11, face = "bold"))
-
-          })
 
 
     # ── Download ───────────────────────────────────────────────────────────────────
