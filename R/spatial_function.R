@@ -2589,12 +2589,17 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                       if ("SCT"     %in% names(seurat_obj@assays)) "SCT"     else
                       DefaultAssay(seurat_obj)
 
-      seurat_sub <- subset(seurat_obj, cells = spots)
-      seurat_sub <- UpdateSeuratObject(seurat_sub)
-      DefaultAssay(seurat_sub) <- spatial_assay
-      seurat_sub@meta.data[["lr_score"]] <- smat[spots, pair]
+      # Add score to full object — non-group spots get NA (shown as grey)
+      spatial_assay <- if ("Spatial" %in% names(seurat_obj@assays)) "Spatial" else
+                      if ("SCT"     %in% names(seurat_obj@assays)) "SCT"     else
+                      DefaultAssay(seurat_obj)
 
-      SpatialFeaturePlot(seurat_sub,
+      seurat_obj$lr_score <- NA
+      seurat_obj$lr_score[spots] <- smat[spots, pair]
+
+      DefaultAssay(seurat_obj) <- spatial_assay
+
+      SpatialFeaturePlot(seurat_obj,
                         features    = "lr_score",
                         alpha       = c(0.8, 1),
                         image.alpha = 0.1) +
@@ -2604,8 +2609,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                     name = "Score") +
         ggplot2::ggtitle(gsub("_x_", " \u00d7 ", pair)) +
         ggplot2::theme(plot.title = ggplot2::element_text(size = 11, face = "bold"))
-    })
 
+          })
 
 
     # ── Download ───────────────────────────────────────────────────────────────────
