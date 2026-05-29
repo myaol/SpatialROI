@@ -8,6 +8,11 @@
 #' @importFrom magrittr %>%
 
 
+.hallmark_cache <- new.env(parent = emptyenv())
+.hallmark_cache$human <- NULL
+.hallmark_cache$mouse <- NULL
+
+
 prepare_seurat_data <- function(seurat_input, sample_name = "sample", show_image = TRUE) {
 
   # 1. Normalize input
@@ -1002,6 +1007,23 @@ prepare_seurat_data <- function(seurat_input, sample_name = "sample", show_image
     )
   )
 
+  if (is.null(.hallmark_cache$human)) {
+    .hallmark_cache$human <- tryCatch({
+      h <- msigdbr::msigdbr(species = "Homo sapiens", collection = "H")
+      lapply(split(h$gene_symbol, h$gs_name), function(g) list(genes = g))
+    }, error = function(e) { message("msigdbr unavailable: ", e$message); list() })
+  }
+  hallmark_library_human <- .hallmark_cache$human
+
+  if (is.null(.hallmark_cache$mouse)) {
+    .hallmark_cache$mouse <- tryCatch({
+      h <- msigdbr::msigdbr(species = "Mus musculus", collection = "H")
+      lapply(split(h$gene_symbol, h$gs_name), function(g) list(genes = g))
+    }, error = function(e) { message("msigdbr unavailable: ", e$message); list() })
+  }
+  hallmark_library_mouse <- .hallmark_cache$mouse
+
+
   # Return everything
   list(
     seurat_obj = seurat_obj,
@@ -1013,6 +1035,8 @@ prepare_seurat_data <- function(seurat_input, sample_name = "sample", show_image
     signature_library_human = signature_library_human,
     signature_library_mouse = signature_library_mouse,
     sample_name = sample_name,
-    show_image = show_image
+    show_image = show_image,
+    hallmark_library_human = hallmark_library_human,
+    hallmark_library_mouse = hallmark_library_mouse
   )
 }

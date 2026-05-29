@@ -44,7 +44,9 @@ Imports:
     ggforce,
     grid,
     spdep,
-    methods
+    methods,
+    msigdbr,
+    R.utils
 Suggests:
     spacexr,
     Matrix,
