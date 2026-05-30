@@ -2323,7 +2323,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     builtin_refs <- list(
       crc = {
         # Works when installed as a package
-        pkg_path <- system.file("extdata", "CRC_reference_RCTD.rds", package = "SpatialScope")
+        pkg_path <- system.file("extdata", "CRC_reference_RCTD.rds", package = "SpatialScopeDev")
         if (nchar(pkg_path) > 0 && file.exists(pkg_path)) {
           pkg_path
         } else {
