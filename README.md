@@ -93,6 +93,16 @@ This function supports multiple ROI selections and returns a vector of spot IDs,
 
 ---
 
+## Reference Datasets
+
+Curated RCTD reference datasets for LUAD/LUSC, RCC, breast cancer, HCC, OSCC, and mouse brain are hosted on Zenodo:
+
+DOI: https://doi.org/10.5281/zenodo.20554051
+
+These datasets can be downloaded separately and supplied to SpatialScope for RCTD-based cell-type deconvolution.
+
+---
+
 ## Documentation
 
 📚 **Detailed tutorials and examples:**
