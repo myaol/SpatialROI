@@ -1,2 +1,0 @@
-load("/Users/markdana/Downloads/SpatialScope_dev/inst/extdata/CRC_RCTD_reference.rds")
-load("/Users/markdana/Downloads/SpatialScope_dev/inst/extdata/example_visium.rds")
