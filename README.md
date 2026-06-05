@@ -36,7 +36,7 @@ devtools::install_github("myaol/SpatialScope")
 
 ```r
 library(SpatialScope)
-run_SpatialScope("demo")
+run_spatial_selector("demo")
 ```
 
 ### With Your Own Data
