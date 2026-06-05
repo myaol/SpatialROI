@@ -1,1 +1,2 @@
 inst/extdata/CRC_reference_RCTD.rds filter=lfs diff=lfs merge=lfs -text
+inst/extdata/example_visium.rds filter=lfs diff=lfs merge=lfs -text
