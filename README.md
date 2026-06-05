@@ -35,14 +35,14 @@ devtools::install_github("myaol/SpatialScope")
 ### With Example Data
 
 ```r
-library(SpatialScopeDev)
+library(SpatialScope)
 run_SpatialScope("demo")
 ```
 
 ### With Your Own Data
 
 ```r
-library(SpatialScopeDev)
+library(SpatialScope)
 Seurat_object <- readRDS("path/to/your_seurat.rds")
 run_spatial_selector(Seurat_object, sample_name = "MyExperiment", show_image = TRUE)
 ```
@@ -60,7 +60,7 @@ Or upload through the app interface in the Visualization section using the 📤 
 If you only need to select spots from a region of interest without launching the full analysis app:
 
 ```r
-library(SpatialScopeDev)
+library(SpatialScope)
 
 # Load your Seurat object
 Seurat_object <- readRDS("path/to/your_seurat.rds")
@@ -82,10 +82,11 @@ This function supports multiple ROI selections and returns a vector of spot IDs,
 
 ## Features
 
-- 🗺️ **Interactive Map** - Freehand drawing tools to select custom regions of interest
-- 🎨 **Gene Visualization** - Display gene expression and metadata patterns spatially
-- 🧬 **Gene Set Analysis** - Calculate multi-gene signatures using pre-defined libraries or custom lists for human and mouse
-- 📊 **Spatial Clustering** - Identify spatial domains using graph-based clustering methods
+- 🗺️ **ROI Drawing** - Freehand drawing tools to select custom regions of interest
+- 🧬 **Gene Set and Pathway Visualization** - Spatially map custom gene lists, cell-type signatures, or pathway gene sets
+- 🔗 **Ligand-Receptor Colocalization** - ROI-specific ligand-receptor interaction enrichment analysis
+- 🧩 **Cell Type Deconvolution** - RCTD-based cell type deconvolution within user-defined ROIs
+- 📊 **Spot Clustering** - Identify spatial domains using graph-based clustering methods
 - 📈 **DEG Analysis** - Find differentially expressed genes between selected groups or clusters
 - ⚖️ **Feature Comparison** - Statistical comparison plots with parametric/non-parametric tests
 - 💾 **Data Export** - Download spot IDs, DEG results, and Seurat subsets
@@ -97,9 +98,8 @@ This function supports multiple ROI selections and returns a vector of spot IDs,
 📚 **Detailed tutorials and examples:**
 - [User Guide Vignette](vignettes.Rmd) - GUI Step-by-step walkthrough
 - [Function Workflow Vignette](vignettes_functions.Rmd) - Scripted workflow
-- [JOSS Paper](JOSS/paper.md) - Comprehensive methodology and features
+- [Manuscript](https://academic.oup.com/bioinformaticsadvances) - Lu et al. 2026, *Bioinformatics Advances* (in submission)
 
-📹 **Video Tutorial:** A video tutorial will be available soon.[YouTube Quickstart](https://youtu.be/**)
 
 ---
 
@@ -108,8 +108,8 @@ This function supports multiple ROI selections and returns a vector of spot IDs,
 If you encounter bugs or have suggestions for improvements:
 - **Report issues:** [GitHub Issues](https://github.com/myaol/SpatialScope/issues)
 - **Contact authors:**
-  - Aodong Qiu: [qiuaodon@pitt.edu](mailto:qiuaodon@pitt.edu)
   - Mengyao Lu: [mel373@pitt.edu](mailto:mel373@pitt.edu)
+  - Aodong Qiu: [qiuaodon@pitt.edu](mailto:qiuaodon@pitt.edu)
   - Lujia Chen: [luc17@pitt.edu](mailto:luc17@pitt.edu)
 
 When reporting issues, please include your sessionInfo(), a minimal reproducible example, and any error messages.
@@ -121,19 +121,15 @@ When reporting issues, please include your sessionInfo(), a minimal reproducible
 If you use SpatialScope in your research, please cite:
 
 ```bibtex
-@article{SpatialScope2025,
+@article{SpatialScope2026,
   title = {SpatialScope: An Interactive R Shiny Package for Manual Region-Based Analysis of Spatial Transcriptomics Data},
-  author = {Qiu, Aodong and Lu, Mengyao and Lu, Xinghua and Xu, Min and Chen, Lujia},
-  journal = {Journal of Open Source Software},
-  year = {X},
-  volume = {X},
-  number = {X},
-  pages = {XXXX},
-  doi = {XXXXX},
-  url = {https://github.com/mayol/SpatialScope}
+  author = {Lu, Mengyao and Qiu, Aodong and Lu, Xinghua and Xu, Min and Chen, Lujia},
+  journal = {Bioinformatics Advances},
+  year = {2026},
+  note = {manuscript in submission},
+  url = {https://github.com/myaol/SpatialScope}
 }
 ```
-
 
 ---
 
