@@ -1,15 +1,20 @@
-Package: SpatialScopeDev
-Title: Interactive Spatial Transcriptomics Analysis
+Package: SpatialScope
+Title: An Interactive R Shiny Platform for Customized Region-Aware Spatial Transcriptomics Analysis
 Version: 0.1.0
-Authors@R: 
-    c(
-      person("Aodong", "Qiu", email = "qiuaodon@pitt.edu", role = c("aut", "cre")),
-      person("Mengyao", "Lu", email = "lumenyao@pitt.edu", role = "aut", comment = c("Co-first author"))
+Authors@R: c(
+    person("Mengyao", "Lu",
+           email = "mel373@pitt.edu",
+           role = c("aut", "cre"),
+           comment = c("Co-first author")),
+    person("Aodong", "Qiu",
+           email = "qiuaodon@pitt.edu",
+           role = "aut",
+           comment = c("Co-first author"))
     )
-Description: An interactive R package with a browser-based interface that enables 
-    spatial visualization and analysis directly from processed Seurat objects. Users 
-    can interactively select regions of interest (ROI), visualize gene expression 
-    patterns, and perform downstream analyses including gene set scoring, spatial 
+Description: An interactive R package with a browser-based interface that enables
+    spatial visualization and analysis directly from processed Seurat objects. Users
+    can interactively select regions of interest (ROI), visualize gene expression
+    patterns, and perform downstream analyses including gene set scoring, spatial
     clustering, and differential expression analysis.
 License: MIT + file LICENSE
 Encoding: UTF-8

@@ -1,3 +1,6 @@
+future::plan("sequential")
+options(future.globals.maxSize = 2000 * 1024^2)
+
 #' Run the SpatialScope Spatial Selector
 #'
 #' @description
@@ -20,7 +23,7 @@
 #'   DefaultAssay
 #'   DimPlot
 #'   FetchData
-#'   FindAllMarkersload_uploaded_seurat
+#'   FindAllMarkers
 #'   FindMarkers
 #'   FindVariableFeatures
 #'   GetAssayData
@@ -33,8 +36,8 @@
 #'   FindClusters
 #'   NormalizeData
 #'   ScaleData
-#'   DT
 #'
+#' @importFrom DT datatable
 #' @importFrom dplyr %>% filter
 #' @importFrom grDevices as.raster colorRampPalette dev.off png rainbow
 #' @importFrom graphics par
@@ -45,18 +48,14 @@
 #' @return A Shiny application object; launching the GUI as a side effect.
 #' @export
 
-future::plan("sequential")
-options(future.globals.maxSize = 2000 * 1024^2)
 
-#' Run the SpatialScope Spatial Selector
-#' ...all your roxygen comments...
-#' @export
+
 #'
 run_spatial_selector <- function(seurat_input, sample_name = "sample", show_image = TRUE) {
 
   # Handle demo data
   if (is.character(seurat_input) && seurat_input == "demo") {
-    demo_file <- system.file("extdata", "example_visium.rds", package = "SpatialScopeDev")  # ← Changed here
+    demo_file <- system.file("extdata", "example_visium.rds", package = "SpatialScope")  # ← Changed here
 
     if (demo_file == "" || !file.exists(demo_file)) {
       stop("Demo data not found. Please ensure the package is installed correctly.\n",
@@ -1642,9 +1641,9 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     lr_db_path <- reactive({
       species <- if (is.null(input$lr_species) || input$lr_species == "") "human" else input$lr_species
       if (species == "mouse") {
-        system.file("extdata", "lr_network_combined_mouse.tsv", package = "SpatialScopeDev")
+        system.file("extdata", "lr_network_combined_mouse.tsv", package = "SpatialScope")
       } else {
-        system.file("extdata", "lr_network_combined_human.tsv", package = "SpatialScopeDev")
+        system.file("extdata", "lr_network_combined_human.tsv", package = "SpatialScope")
       }
     })
 
@@ -2323,7 +2322,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     builtin_refs <- list(
       crc = {
         # Works when installed as a package
-        pkg_path <- system.file("extdata", "CRC_reference_RCTD.rds", package = "SpatialScopeDev")
+        pkg_path <- system.file("extdata", "CRC_reference_RCTD.rds", package = "SpatialScope")
         if (nchar(pkg_path) > 0 && file.exists(pkg_path)) {
           pkg_path
         } else {
