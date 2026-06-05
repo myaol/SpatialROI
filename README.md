@@ -44,6 +44,8 @@ run_spatial_selector("demo")
 ```r
 library(SpatialScope)
 Seurat_object <- readRDS("path/to/your_seurat.rds")
+# Update the object to current Seurat version
+Seurat_object <- UpdateSeuratObject(Seurat_object)
 run_spatial_selector(Seurat_object, sample_name = "MyExperiment", show_image = TRUE)
 ```
 
