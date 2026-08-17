@@ -819,27 +819,21 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                       # Group buttons (bottom center) - MODIFIED: Added download buttons
                       tags$div(
                         style = "position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; display: flex; gap: 15px; align-items: center;",
-                        tags$div(style = "display: flex; flex-direction: column; gap: 5px;",
-                                 tags$button(
-                                   style = "background: white; color: #E41A1C; border: 3px solid #E41A1C; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 14px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);",
-                                   onclick = "Shiny.setInputValue('save_group1_map', Math.random());",
-                                   onmouseover = "this.style.background='#E41A1C'; this.style.color='white';",
-                                   onmouseout = "this.style.background='white'; this.style.color='#E41A1C';",
-                                   "Group 1"
+                        # ── Variant: DROPDOWN-ASSIGN (Reviewer 1, item 1) ──────────────
+                        # Draw an ROI, then pick (or type a new) group name and click
+                        # Assign. Multiple ROIs can be assigned to the same group.
+                        tags$div(style = "background:white; padding:10px 14px; border-radius:8px; box-shadow:0 2px 10px rgba(0,0,0,0.2); display:flex; flex-direction:column; gap:8px; min-width:250px;",
+                                 tags$div(style = "font-weight:bold; font-size:13px;", "Assign drawn ROI → group"),
+                                 tags$div(style = "display:flex; gap:8px; align-items:center;",
+                                          div(style = "flex:1;",
+                                              selectizeInput("assign_group_name", NULL, choices = NULL,
+                                                             options = list(create = TRUE,
+                                                                            placeholder = "select or type a group"),
+                                                             width = "100%")),
+                                          actionButton("assign_roi_btn", "➕ Assign",
+                                                       class = "btn btn-primary btn-sm")
                                  ),
-                                 downloadButton("dl_seurat_group1", "⬇ Download Group 1", class = "btn btn-success btn-sm",
-                                                style = "font-size: 11px; padding: 4px 12px;")
-                        ),
-                        tags$div(style = "display: flex; flex-direction: column; gap: 5px;",
-                                 tags$button(
-                                   style = "background: white; color: #377EB8; border: 3px solid #377EB8; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 14px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);",
-                                   onclick = "Shiny.setInputValue('save_group2_map', Math.random());",
-                                   onmouseover = "this.style.background='#377EB8'; this.style.color='white';",
-                                   onmouseout = "this.style.background='white'; this.style.color='#377EB8';",
-                                   "Group 2"
-                                 ),
-                                 downloadButton("dl_seurat_group2", "⬇ Download Group 2", class = "btn btn-success btn-sm",
-                                                style = "font-size: 11px; padding: 4px 12px;")
+                                 uiOutput("group_chips")
                         ),
                         tags$div(style = "display: flex; flex-direction: column; gap: 6px;",
                           checkboxInput("show_groups", "Show Groups on Map", value = FALSE),
@@ -4635,6 +4629,59 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       } else {
         showNotification("No spots selected!", type = "warning")
       }
+    })
+
+    # ── Variant: DROPDOWN-ASSIGN server logic (Reviewer 1, item 1) ─────────────
+    # Keep the assign dropdown in sync with existing group names. Always include
+    # the current (possibly just-typed) value in the choices so a groups() change
+    # never wipes a name the user is in the middle of entering.
+    observe({
+      nm  <- group_names()
+      cur <- isolate(input$assign_group_name)
+      ch  <- unique(c(nm, if (!is.null(cur) && nzchar(cur)) cur))
+      updateSelectizeInput(session, "assign_group_name",
+                           choices = ch, selected = cur, server = FALSE)
+    })
+
+    # Assign the currently drawn ROI (its spots + boundary) to the chosen group.
+    observeEvent(input$assign_roi_btn, {
+      name <- input$assign_group_name
+      if (is.null(name) || trimws(name) == "") {
+        showNotification("Pick or type a group name first.", type = "warning"); return()
+      }
+      name <- trimws(name)
+      sel <- selected_spots()
+      if (length(sel) == 0) {
+        showNotification("Draw an ROI on the map first.", type = "warning"); return()
+      }
+      append_to_group(name, sel, extract_roi_rings(drawn_feats()))
+      drawn_feats(list()); selected_spots(character(0))
+      session$sendCustomMessage("clearFreehandDrawings", list())
+      leafletProxy("map") %>% clearGroup("drawn") %>% clearGroup("selected")
+      showNotification(paste0("Added ", length(sel), " spots to group '", name, "'."),
+                       type = "message")
+    })
+
+    # Live list of groups with color swatch, spot count, and a remove button.
+    output$group_chips <- renderUI({
+      g <- groups(); nm <- names(g)
+      if (length(nm) == 0) return(tags$em(style = "font-size:12px; color:#888;", "No groups yet."))
+      tagList(lapply(seq_along(nm), function(i) {
+        cnt <- length(g[[nm[i]]]$spots)
+        col <- group_color(i)
+        tags$div(style = "display:flex; align-items:center; gap:6px; font-size:12px;",
+                 tags$span(style = sprintf("display:inline-block; width:12px; height:12px; border-radius:50%%; background:%s;", col)),
+                 tags$span(style = "flex:1;", sprintf("%s  (%d spots)", nm[i], cnt)),
+                 tags$button("✕", title = "Remove group",
+                             style = "border:none; background:none; cursor:pointer; color:#c0392b; font-size:13px;",
+                             onclick = sprintf("Shiny.setInputValue('remove_group', '%s', {priority:'event'});", nm[i]))
+        )
+      }))
+    })
+
+    observeEvent(input$remove_group, {
+      g <- groups(); g[[input$remove_group]] <- NULL; groups(g)
+      showNotification(paste0("Removed group '", input$remove_group, "'."), type = "message")
     })
 
     output$group1_info <- renderText({
