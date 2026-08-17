@@ -819,19 +819,33 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                       # Group buttons (bottom center) - MODIFIED: Added download buttons
                       tags$div(
                         style = "position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; display: flex; gap: 15px; align-items: center;",
-                        # ── Variant: DROPDOWN-ASSIGN (Reviewer 1, item 1) ──────────────
-                        # Draw an ROI, then pick (or type a new) group name and click
-                        # Assign. Multiple ROIs can be assigned to the same group.
-                        tags$div(style = "background:white; padding:10px 14px; border-radius:8px; box-shadow:0 2px 10px rgba(0,0,0,0.2); display:flex; flex-direction:column; gap:8px; min-width:250px;",
-                                 tags$div(style = "font-weight:bold; font-size:13px;", "Assign drawn ROI → group"),
-                                 tags$div(style = "display:flex; gap:8px; align-items:center;",
+                        # ── Two-tier ROI / Group panel (Reviewer 1, item 1) ────────────
+                        # ① Draw a region → name it → Save region (named ROI).
+                        # ② Optionally group several named ROIs for group-vs-group.
+                        tags$div(style = "background:white; padding:14px 18px; border-radius:10px; box-shadow:0 3px 14px rgba(0,0,0,0.25); display:flex; flex-direction:column; gap:10px; min-width:440px; max-width:580px;",
+                                 tags$div(style = "font-weight:700; font-size:14px; color:#2c3e50;",
+                                          "① Draw a region, then name and save it"),
+                                 tags$div(style = "display:flex; gap:12px; align-items:flex-end;",
                                           div(style = "flex:1;",
-                                              selectizeInput("assign_group_name", NULL, choices = NULL,
-                                                             options = list(create = TRUE,
-                                                                            placeholder = "select or type a group"),
-                                                             width = "100%")),
-                                          actionButton("assign_roi_btn", "➕ Assign",
-                                                       class = "btn btn-primary btn-sm")
+                                              textInput("roi_name", NULL, value = "ROI 1",
+                                                        placeholder = "e.g. Tumor edge", width = "100%")),
+                                          actionButton("save_roi_btn", "➕ Save region",
+                                                       class = "btn btn-primary",
+                                                       style = "height:44px; min-width:160px; font-size:15px; font-weight:700;")
+                                 ),
+                                 uiOutput("roi_chips"),
+                                 tags$hr(style = "margin:4px 0; border-top:1px solid #eee;"),
+                                 tags$div(style = "font-weight:700; font-size:14px; color:#2c3e50;",
+                                          "② Group ROIs (optional — for group-vs-group)"),
+                                 tags$div(style = "display:flex; gap:12px; align-items:flex-end;",
+                                          div(style = "flex:2;",
+                                              selectizeInput("group_member_rois", NULL, choices = NULL, multiple = TRUE,
+                                                             options = list(placeholder = "pick ROIs"), width = "100%")),
+                                          div(style = "flex:1;",
+                                              textInput("group_name", NULL, placeholder = "group name", width = "100%")),
+                                          actionButton("create_group_btn", "＋ Group",
+                                                       class = "btn btn-success",
+                                                       style = "height:44px; white-space:nowrap; font-weight:700;")
                                  ),
                                  uiOutput("group_chips")
                         ),
@@ -1656,41 +1670,48 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     # multiple ROIs per group. Two default groups exist so the app behaves exactly
     # as before out of the box. The legacy group1_*/group2_* accessors below derive
     # from the first two groups, so existing analysis code keeps working unchanged.
-    .empty_group  <- function() list(spots = character(0), rois = list())
-    .default_groups <- function() list("Group 1" = .empty_group(), "Group 2" = .empty_group())
-    groups <- reactiveVal(.default_groups())
+    # Palette for distinguishing ROIs on the map (cycles if > length).
+    .roi_palette <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00",
+                      "#A65628", "#F781BF", "#1B9E77", "#666666", "#66A61E")
+    group_color <- function(i) .roi_palette[((i - 1) %% length(.roi_palette)) + 1]
+
+    # ROIs: first-class named regions, each with its own spots + boundary rings.
+    rois        <- reactiveVal(list())   # "ROI 1" = list(spots=chr, rings=list())
+    roi_counter <- reactiveVal(0)        # for default names "ROI 1", "ROI 2", ...
+    # Groups: named collections of ROI names (each ROI keeps its identity inside).
+    groups      <- reactiveVal(list())   # "Tumor" = list(members=chr)
+    roi_names   <- reactive(names(rois()))
     group_names <- reactive(names(groups()))
 
-    # Palette for distinguishing groups on the map (cycles if > length).
-    group_palette <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00",
-                       "#A65628", "#F781BF", "#1B9E77", "#666666", "#66A61E")
-    group_color <- function(i) group_palette[((i - 1) %% length(group_palette)) + 1]
+    # Save the current drawing as a named ROI.
+    save_roi <- function(name, spots, rings) {
+      r <- rois(); r[[name]] <- list(spots = spots, rings = rings); rois(r)
+    }
+    # Combined spots / boundary rings for a group = union over its member ROIs.
+    group_spots_of <- function(gname) {
+      gg <- groups()[[gname]]
+      if (is.null(gg) || length(gg$members) == 0) return(character(0))
+      r <- rois()
+      unique(unlist(lapply(gg$members, function(m) if (!is.null(r[[m]])) r[[m]]$spots else NULL),
+                    use.names = FALSE))
+    }
+    group_rings_of <- function(gname) {
+      gg <- groups()[[gname]]
+      if (is.null(gg) || length(gg$members) == 0) return(list())
+      r <- rois(); out <- list()
+      for (m in gg$members) if (!is.null(r[[m]])) out <- c(out, r[[m]]$rings)
+      out
+    }
+    reset_groups <- function() { rois(list()); groups(list()); roi_counter(0) }
 
-    # Write-through setters that keep the groups() list authoritative.
-    set_group_spots <- function(name, spots) {
-      g <- groups(); if (is.null(g[[name]])) g[[name]] <- .empty_group()
-      g[[name]]$spots <- spots; groups(g)
-    }
-    set_group_rois <- function(name, rois) {
-      g <- groups(); if (is.null(g[[name]])) g[[name]] <- .empty_group()
-      g[[name]]$rois <- rois; groups(g)
-    }
-    # Append an ROI + its spots to a group (multiple ROIs per group).
-    append_to_group <- function(name, spots, rois) {
-      g <- groups(); if (is.null(g[[name]])) g[[name]] <- .empty_group()
-      g[[name]]$spots <- union(g[[name]]$spots, spots)
-      g[[name]]$rois  <- c(g[[name]]$rois, rois)
-      groups(g)
-    }
-    reset_groups <- function() groups(.default_groups())
-
-    # Legacy accessors (read-only) derived from the first two groups.
-    .grp_spots <- function(i) { g <- groups(); nm <- names(g); if (length(nm) >= i) g[[nm[i]]]$spots else character(0) }
-    .grp_rois  <- function(i) { g <- groups(); nm <- names(g); if (length(nm) >= i) g[[nm[i]]]$rois  else list() }
+    # Legacy accessors: map the first two GROUPS to the old group1/group2 slots so
+    # existing DEG / plotting / download code keeps working until A3 wires N groups.
+    .grp_spots <- function(i) { nm <- names(groups()); if (length(nm) >= i) group_spots_of(nm[i]) else character(0) }
+    .grp_rings <- function(i) { nm <- names(groups()); if (length(nm) >= i) group_rings_of(nm[i]) else list() }
     group1_spots <- reactive(.grp_spots(1))
     group2_spots <- reactive(.grp_spots(2))
-    group1_roi   <- reactive(.grp_rois(1))
-    group2_roi   <- reactive(.grp_rois(2))
+    group1_roi   <- reactive(.grp_rings(1))
+    group2_roi   <- reactive(.grp_rings(2))
     cluster_colors_palette <- reactiveVal(NULL) 
     last_group_plot <- reactiveVal(NULL) 
 
@@ -1707,8 +1728,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     lr_network <- reactive({
       read.table(lr_db_path(), sep = "\t", header = TRUE)
     })    
-    output_group1 <- reactiveVal(character(0))  # Stored copy for export
-    output_group2 <- reactiveVal(character(0))  # Stored copy for export
+    output_group1 <- reactive(.grp_spots(1))  # bridged: first group's combined spots
+    output_group2 <- reactive(.grp_spots(2))  # bridged: second group's combined spots
     deg_results <- reactiveVal(NULL)
     violin_data <- reactiveVal(NULL)
     compare_data <- reactiveVal(NULL)
@@ -4048,14 +4069,14 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         clearGroup("group2_display") %>%
         clearGroup("roi_contour")
 
-      g  <- groups()
-      nm <- names(g)
+      r  <- rois()
+      nm <- names(r)
 
-      # Group member dots ("Show Groups on Map") — one colored layer per group,
-      # supporting any number of groups (Reviewer 1, item 1).
+      # ROI member dots ("Show Groups on Map") — one colored layer per named ROI,
+      # so every saved region is visible in its own color (Reviewer 1, item 1).
       if (isTRUE(input$show_groups) && length(nm) > 0) {
         for (i in seq_along(nm)) {
-          spots <- g[[nm[i]]]$spots
+          spots <- r[[nm[i]]]$spots
           if (length(spots) == 0) next
           idx <- which(spots_sf$spot_id %in% spots)
           if (length(idx) == 0) next
@@ -4072,11 +4093,11 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         }
       }
 
-      # ROI boundary contours ("Show ROI contours") — all groups, high-contrast,
+      # ROI boundary contours ("Show ROI contours") — every saved ROI, high-contrast,
       # re-applied on every redraw so they persist (Reviewer 1, item 3).
       if (isTRUE(input$show_roi_contours) && length(nm) > 0) {
         for (i in seq_along(nm)) {
-          proxy <- add_roi_contour(proxy, g[[nm[i]]]$rois)
+          proxy <- add_roi_contour(proxy, r[[nm[i]]]$rings)
         }
       }
 
@@ -4561,121 +4582,89 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     })
 
     # Group management (from map buttons)
-    observeEvent(input$save_group1_map, {
-      sel <- selected_spots()
-      if (length(sel) > 0) {
-        set_group_spots("Group 1", sel)
-        output_group1(sel)  # Save to export variable
-        set_group_rois("Group 1", extract_roi_rings(drawn_feats()))  # Capture ROI boundary before clearing (item 3)
-        showNotification(paste("Saved", length(sel), "spots to Group 1"), type = "message")
+    # ── ROI / Group management (two-tier model, Reviewer 1, item 1) ───────────
+    # ROIs are first-class named regions; Groups are named collections of ROIs.
 
-        # Clear selection after saving
-        drawn_feats(list())
-        selected_spots(character(0))
-        session$sendCustomMessage("clearFreehandDrawings", list())
-        leafletProxy("map") %>%
-          clearGroup("drawn") %>%
-          clearGroup("selected")
-
-        # Immediately show the group on map if checkbox is checked
-        if (input$show_groups) {
-          Sys.sleep(0.1)  # Small delay to ensure state is updated
-          g1_indices <- which(spots_sf$spot_id %in% sel)
-          leafletProxy("map") %>%
-            clearGroup("group1_display") %>%
-            addCircleMarkers(
-              lng = spots_sf$x[g1_indices],
-              lat = spots_sf$y[g1_indices],
-              radius = 4, stroke = TRUE, color = "darkred", weight = 2,
-              opacity = if (isTRUE(input$transparent_groups)) 0.6 else 1,
-              fillColor = "red", fillOpacity = if (isTRUE(input$transparent_groups)) 0 else 0.8, group = "group1_display"
-            )
-        }
-      } else {
-        showNotification("No spots selected!", type = "warning")
-      }
-    })
-
-    observeEvent(input$save_group2_map, {
-      sel <- selected_spots()
-      if (length(sel) > 0) {
-        set_group_spots("Group 2", sel)
-        output_group2(sel)  # Save to export variable
-        set_group_rois("Group 2", extract_roi_rings(drawn_feats()))  # Capture ROI boundary before clearing (item 3)
-        showNotification(paste("Saved", length(sel), "spots to Group 2"), type = "message")
-
-        # Clear selection after saving
-        drawn_feats(list())
-        selected_spots(character(0))
-        session$sendCustomMessage("clearFreehandDrawings", list())
-        leafletProxy("map") %>%
-          clearGroup("drawn") %>%
-          clearGroup("selected")
-
-        # Immediately show the group on map if checkbox is checked
-        if (input$show_groups) {
-          Sys.sleep(0.1)  # Small delay to ensure state is updated
-          g2_indices <- which(spots_sf$spot_id %in% sel)
-          leafletProxy("map") %>%
-            clearGroup("group2_display") %>%
-            addCircleMarkers(
-              lng = spots_sf$x[g2_indices],
-              lat = spots_sf$y[g2_indices],
-              radius = 4, stroke = TRUE, color = "darkblue", weight = 2,
-              opacity = if (isTRUE(input$transparent_groups)) 0.6 else 1,
-              fillColor = "blue", fillOpacity = if (isTRUE(input$transparent_groups)) 0 else 0.8, group = "group2_display"
-            )
-        }
-      } else {
-        showNotification("No spots selected!", type = "warning")
-      }
-    })
-
-    # ── Variant: DROPDOWN-ASSIGN server logic (Reviewer 1, item 1) ─────────────
-    # Keep the assign dropdown in sync with existing group names. Always include
-    # the current (possibly just-typed) value in the choices so a groups() change
-    # never wipes a name the user is in the middle of entering.
-    observe({
-      nm  <- group_names()
-      cur <- isolate(input$assign_group_name)
-      ch  <- unique(c(nm, if (!is.null(cur) && nzchar(cur)) cur))
-      updateSelectizeInput(session, "assign_group_name",
-                           choices = ch, selected = cur, server = FALSE)
-    })
-
-    # Assign the currently drawn ROI (its spots + boundary) to the chosen group.
-    observeEvent(input$assign_roi_btn, {
-      name <- input$assign_group_name
-      if (is.null(name) || trimws(name) == "") {
-        showNotification("Pick or type a group name first.", type = "warning"); return()
-      }
-      name <- trimws(name)
+    # Save the currently drawn region as a named ROI.
+    observeEvent(input$save_roi_btn, {
       sel <- selected_spots()
       if (length(sel) == 0) {
-        showNotification("Draw an ROI on the map first.", type = "warning"); return()
+        showNotification("Draw a region on the map first.", type = "warning"); return()
       }
-      append_to_group(name, sel, extract_roi_rings(drawn_feats()))
+      name <- input$roi_name
+      if (is.null(name) || trimws(name) == "") name <- paste0("ROI ", roi_counter() + 1)
+      name <- trimws(name)
+      if (!is.null(rois()[[name]])) {
+        showNotification(paste0("An ROI named '", name, "' already exists."), type = "warning"); return()
+      }
+      save_roi(name, sel, extract_roi_rings(drawn_feats()))
+      roi_counter(roi_counter() + 1)
       drawn_feats(list()); selected_spots(character(0))
       session$sendCustomMessage("clearFreehandDrawings", list())
       leafletProxy("map") %>% clearGroup("drawn") %>% clearGroup("selected")
-      showNotification(paste0("Added ", length(sel), " spots to group '", name, "'."),
-                       type = "message")
+      updateTextInput(session, "roi_name", value = paste0("ROI ", roi_counter() + 1))
+      showNotification(paste0("Saved region '", name, "' (", length(sel), " spots)."), type = "message")
     })
 
-    # Live list of groups with color swatch, spot count, and a remove button.
+    # Saved-ROIs list: color swatch, name, spot count, remove.
+    output$roi_chips <- renderUI({
+      r <- rois(); nm <- names(r)
+      if (length(nm) == 0)
+        return(tags$em(style = "font-size:12px; color:#888;", "No ROIs yet \u2014 draw a region and save it."))
+      tagList(lapply(seq_along(nm), function(i) {
+        cnt <- length(r[[nm[i]]]$spots); col <- group_color(i)
+        tags$div(style = "display:flex; align-items:center; gap:6px; font-size:12px;",
+                 tags$span(style = sprintf("display:inline-block; width:12px; height:12px; border-radius:3px; background:%s;", col)),
+                 tags$span(style = "flex:1;", sprintf("%s  (%d spots)", nm[i], cnt)),
+                 tags$button("\u2715", title = "Remove ROI",
+                             style = "border:none; background:none; cursor:pointer; color:#c0392b; font-size:13px;",
+                             onclick = sprintf("Shiny.setInputValue('remove_roi','%s',{priority:'event'});", nm[i])))
+      }))
+    })
+
+    observeEvent(input$remove_roi, {
+      r <- rois(); r[[input$remove_roi]] <- NULL; rois(r)
+      g <- groups()
+      for (gn in names(g)) g[[gn]]$members <- setdiff(g[[gn]]$members, input$remove_roi)
+      groups(g)
+      showNotification(paste0("Removed ROI '", input$remove_roi, "'."), type = "message")
+    })
+
+    # Keep the "group from ROIs" multi-select in sync with available ROI names.
+    observe({
+      updateSelectizeInput(session, "group_member_rois",
+                           choices = roi_names(),
+                           selected = isolate(input$group_member_rois))
+    })
+
+    # Create a named group from the selected ROIs.
+    observeEvent(input$create_group_btn, {
+      members <- input$group_member_rois
+      if (is.null(members) || length(members) == 0) {
+        showNotification("Select one or more ROIs to group.", type = "warning"); return()
+      }
+      gname <- input$group_name
+      if (is.null(gname) || trimws(gname) == "") {
+        showNotification("Name the group.", type = "warning"); return()
+      }
+      gname <- trimws(gname)
+      g <- groups(); g[[gname]] <- list(members = members); groups(g)
+      updateTextInput(session, "group_name", value = "")
+      updateSelectizeInput(session, "group_member_rois", selected = character(0))
+      showNotification(paste0("Created group '", gname, "' with ", length(members), " ROI(s)."), type = "message")
+    })
+
+    # Groups list: name, member ROIs, remove.
     output$group_chips <- renderUI({
       g <- groups(); nm <- names(g)
       if (length(nm) == 0) return(tags$em(style = "font-size:12px; color:#888;", "No groups yet."))
       tagList(lapply(seq_along(nm), function(i) {
-        cnt <- length(g[[nm[i]]]$spots)
-        col <- group_color(i)
+        members <- g[[nm[i]]]$members
         tags$div(style = "display:flex; align-items:center; gap:6px; font-size:12px;",
-                 tags$span(style = sprintf("display:inline-block; width:12px; height:12px; border-radius:50%%; background:%s;", col)),
-                 tags$span(style = "flex:1;", sprintf("%s  (%d spots)", nm[i], cnt)),
-                 tags$button("✕", title = "Remove group",
+                 tags$span(style = "flex:1;", sprintf("%s  {%s}", nm[i], paste(members, collapse = ", "))),
+                 tags$button("\u2715", title = "Remove group",
                              style = "border:none; background:none; cursor:pointer; color:#c0392b; font-size:13px;",
-                             onclick = sprintf("Shiny.setInputValue('remove_group', '%s', {priority:'event'});", nm[i]))
-        )
+                             onclick = sprintf("Shiny.setInputValue('remove_group','%s',{priority:'event'});", nm[i])))
       }))
     })
 
@@ -4702,7 +4691,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     observe({
       input$show_groups
       input$show_roi_contours
-      groups()                 # any change to any group's spots/ROIs
+      rois()                   # any change to any named ROI
+      groups()                 # any change to group membership
       input$transparent_groups
       draw_group_overlay()
     }, priority = 1000)
