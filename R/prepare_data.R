@@ -1007,20 +1007,36 @@ prepare_seurat_data <- function(seurat_input, sample_name = "sample", show_image
     )
   )
 
-  if (is.null(.hallmark_cache$human)) {
-    .hallmark_cache$human <- tryCatch({
-      h <- msigdbr::msigdbr(species = "Homo sapiens", collection = "H")
-      lapply(split(h$gene_symbol, h$gs_name), function(g) list(genes = g))
-    }, error = function(e) { message("msigdbr unavailable: ", e$message); list() })
+  # Hallmark gene sets: load from the STATIC bundled file shipped with the app
+  # (no runtime download / msigdbr version dependency) so the "Hallmark Pathways"
+  # dropdown is always populated regardless of the server's msigdbr version
+  # (Reviewer 3, item 4). Falls back to msigdbr only if the bundled file is absent.
+  if (is.null(.hallmark_cache$human) || is.null(.hallmark_cache$mouse)) {
+    hm_file <- system.file("extdata", "hallmark_gene_sets.rds", package = "SpatialScope")
+    if (hm_file == "" || !file.exists(hm_file)) {
+      hm_file <- file.path("inst", "extdata", "hallmark_gene_sets.rds")  # source/dev fallback
+    }
+    bundled <- tryCatch(
+      if (file.exists(hm_file)) readRDS(hm_file) else NULL,
+      error = function(e) { message("Could not read bundled Hallmark file: ", e$message); NULL }
+    )
+
+    if (!is.null(bundled) && length(bundled$human) > 0) {
+      .hallmark_cache$human <- bundled$human
+      .hallmark_cache$mouse <- bundled$mouse
+    } else {
+      # Legacy fallback: fetch via msigdbr at runtime.
+      .hallmark_cache$human <- tryCatch({
+        h <- msigdbr::msigdbr(species = "Homo sapiens", collection = "H")
+        lapply(split(h$gene_symbol, h$gs_name), function(g) list(genes = g))
+      }, error = function(e) { message("msigdbr unavailable: ", e$message); list() })
+      .hallmark_cache$mouse <- tryCatch({
+        h <- msigdbr::msigdbr(species = "Mus musculus", collection = "H")
+        lapply(split(h$gene_symbol, h$gs_name), function(g) list(genes = g))
+      }, error = function(e) { message("msigdbr unavailable: ", e$message); list() })
+    }
   }
   hallmark_library_human <- .hallmark_cache$human
-
-  if (is.null(.hallmark_cache$mouse)) {
-    .hallmark_cache$mouse <- tryCatch({
-      h <- msigdbr::msigdbr(species = "Mus musculus", collection = "H")
-      lapply(split(h$gene_symbol, h$gs_name), function(g) list(genes = g))
-    }, error = function(e) { message("msigdbr unavailable: ", e$message); list() })
-  }
   hallmark_library_mouse <- .hallmark_cache$mouse
 
 

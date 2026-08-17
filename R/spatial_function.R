@@ -843,7 +843,11 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                         ),
                         tags$div(style = "display: flex; flex-direction: column; gap: 6px;",
                           checkboxInput("show_groups", "Show Groups on Map", value = FALSE),
-                          checkboxInput("transparent_groups", "Transparent Group Display", value = FALSE)
+                          checkboxInput("transparent_groups", "Transparent Group Display", value = FALSE),
+                          # Reviewer 1, item 3: high-contrast outline of each saved ROI so the
+                          # boundary stays visible even over bright/high expression. Fixed
+                          # white-cased black dashed style (no color/width options, by design).
+                          checkboxInput("show_roi_contours", "Show ROI contours", value = TRUE)
                         )
                       )
              ),
@@ -1400,9 +1404,13 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                        div(style = "width: 20px; height: 20px; background: #377EB8; border-radius: 50%; margin-right: 10px;"),
                                        div(textOutput("group2_info", inline = TRUE))
                                    ),
-                                   checkboxInput("show_groups", "Show on Map",  value = FALSE),
+                                   # Removed the redundant "Show on Map" checkbox (Reviewer 1, item 7):
+                                   # it shared the same inputId ("show_groups") as the central
+                                   # "Show Groups on Map" control, which made the two boxes drift out
+                                   # of visual sync. Group highlighting is now driven by that single
+                                   # central checkbox; this panel keeps the Group 1 / Group 2 readouts.
                                    tags$p(style = "font-size: 12px; color: #7f8c8d; margin-top: 10px;",
-                                          "💡 Tip: Use the group buttons at the bottom of the map to save selections and download spot IDs.")
+                                          "💡 Tip: Toggle \"Show Groups on Map\" in the visualization panel to highlight the saved groups. Use the group buttons at the bottom of the map to save selections and download spot IDs.")
                                ),
                                div(class = "control-section",
                                    h4("Analysis"),
@@ -1579,6 +1587,21 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
   server <- function(input, output, session) {
 
+    # ── Session isolation ─────────────────────────────────────────────────────
+    # Create session-local copies of every mutable data object. These shadow the
+    # outer-scope objects, so the `<<-` writes in the upload / clustering /
+    # gene-set handlers below resolve to THIS session's copy instead of the
+    # shared app-level binding. Without this, one user's upload overwrites the
+    # data for every concurrent session (Reviewer 3, item 1: session isolation /
+    # data privacy). R is copy-on-modify, so this is a cheap reference copy.
+    seurat_obj      <- seurat_obj
+    spots_sf        <- spots_sf
+    he_image_base64 <- he_image_base64
+    he_image_bounds <- he_image_bounds
+    all_genes       <- all_genes
+    all_metadata    <- all_metadata
+    # ──────────────────────────────────────────────────────────────────────────
+
     # Print CellMarker 2.0 citation to console
     message("\n", paste(rep("=", 80), collapse = ""))
     message("Cell Marker Gene Signatures")
@@ -1633,8 +1656,47 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     current_values <- reactiveVal(NULL)
     is_categorical <- reactiveVal(FALSE)  # Track if current data is categorical
     category_labels <- reactiveVal(NULL)
-    group1_spots <- reactiveVal(character(0))
-    group2_spots <- reactiveVal(character(0))
+    # ── N-group model (Reviewer 1, item 1) ────────────────────────────────────
+    # Single source of truth: a named list of groups, each holding its member
+    # spot IDs and its drawn ROI boundary rings. Supports any number of groups and
+    # multiple ROIs per group. Two default groups exist so the app behaves exactly
+    # as before out of the box. The legacy group1_*/group2_* accessors below derive
+    # from the first two groups, so existing analysis code keeps working unchanged.
+    .empty_group  <- function() list(spots = character(0), rois = list())
+    .default_groups <- function() list("Group 1" = .empty_group(), "Group 2" = .empty_group())
+    groups <- reactiveVal(.default_groups())
+    group_names <- reactive(names(groups()))
+
+    # Palette for distinguishing groups on the map (cycles if > length).
+    group_palette <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00",
+                       "#A65628", "#F781BF", "#1B9E77", "#666666", "#66A61E")
+    group_color <- function(i) group_palette[((i - 1) %% length(group_palette)) + 1]
+
+    # Write-through setters that keep the groups() list authoritative.
+    set_group_spots <- function(name, spots) {
+      g <- groups(); if (is.null(g[[name]])) g[[name]] <- .empty_group()
+      g[[name]]$spots <- spots; groups(g)
+    }
+    set_group_rois <- function(name, rois) {
+      g <- groups(); if (is.null(g[[name]])) g[[name]] <- .empty_group()
+      g[[name]]$rois <- rois; groups(g)
+    }
+    # Append an ROI + its spots to a group (multiple ROIs per group).
+    append_to_group <- function(name, spots, rois) {
+      g <- groups(); if (is.null(g[[name]])) g[[name]] <- .empty_group()
+      g[[name]]$spots <- union(g[[name]]$spots, spots)
+      g[[name]]$rois  <- c(g[[name]]$rois, rois)
+      groups(g)
+    }
+    reset_groups <- function() groups(.default_groups())
+
+    # Legacy accessors (read-only) derived from the first two groups.
+    .grp_spots <- function(i) { g <- groups(); nm <- names(g); if (length(nm) >= i) g[[nm[i]]]$spots else character(0) }
+    .grp_rois  <- function(i) { g <- groups(); nm <- names(g); if (length(nm) >= i) g[[nm[i]]]$rois  else list() }
+    group1_spots <- reactive(.grp_spots(1))
+    group2_spots <- reactive(.grp_spots(2))
+    group1_roi   <- reactive(.grp_rois(1))
+    group2_roi   <- reactive(.grp_rois(2))
     cluster_colors_palette <- reactiveVal(NULL) 
     last_group_plot <- reactiveVal(NULL) 
 
@@ -1713,10 +1775,24 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     current_hallmark_library <- reactive({
       if (input$species_select == "human") hallmark_library_human else hallmark_library_mouse
     })
+    # Populate the Hallmark dropdowns after load / on species change. If the
+    # library is unexpectedly empty, show an explicit message instead of a blank
+    # list so the failure is visible rather than silent (Reviewer 3, item 4).
     observe({
-      updateSelectInput(session, "pathway_library",
-                        choices = c("None", names(current_hallmark_library())),
-                        selected = "None")
+      lib <- current_hallmark_library()
+      pw_names <- names(lib)
+      if (length(pw_names) == 0) {
+        updateSelectInput(session, "pathway_library",
+                          choices = "No Hallmark pathways available on this server",
+                          selected = NULL)
+      } else {
+        updateSelectInput(session, "pathway_library",
+                          choices = c("None", pw_names), selected = "None")
+        # Keep the DEG/violin/comparison pathway pickers in sync with species too.
+        updateSelectInput(session, "violin_pathway",   choices = c("", pw_names))
+        updateSelectInput(session, "compare_pathway1", choices = c("", pw_names))
+        updateSelectInput(session, "compare_pathway2", choices = c("", pw_names))
+      }
     })
 
     # Start analysis from landing page - go directly to showing Home
@@ -1822,46 +1898,13 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     })
 
     # Load uploaded Seurat object
-    observeEvent(input$load_uploaded_seurat, {
-      req(input$upload_seurat)
-
-      # Show loading overlay with custom message
-      shinyjs::runjs("
-        $('#loading_message').text('Uploading and processing new dataset...');
-        $('#loading_overlay').addClass('active');
-      ")
-
-      showNotification("Loading new Seurat object...", type = "message", duration = NULL, id = "load_seurat")
-
-      # Add a small delay to ensure loading screen shows
-      Sys.sleep(0.3)
-
-      tryCatch({
-        # Load the new Seurat object
-        new_seurat <- readRDS(input$upload_seurat$datapath)
-
-        new_seurat <- tryCatch(
-          UpdateSeuratObject(new_seurat),
-          error = function(e) {
-            message("UpdateSeuratObject failed, using original: ", e$message)
-            readRDS(input$upload_seurat$datapath)  # reload original
-          }
-        )
-
-        # Update sample name from uploaded file
-        uploaded_filename <- tools::file_path_sans_ext(input$upload_seurat$name)
-        current_sample_name(uploaded_filename)
-
-        # Validate it's a Seurat object
-        if (!inherits(new_seurat, "Seurat")) {
-          stop("Uploaded file is not a valid Seurat object")
-        }
-
-        # Check for spatial images
-        if (length(new_seurat@images) == 0) {
-          stop("No spatial images found in the uploaded Seurat object")
-        }
-
+    # ── Shared dataset loader ─────────────────────────────────────────────
+    # Applies an already-read Seurat object to the current session: swaps in
+    # the session-local objects, refreshes dropdowns, rebuilds coordinates and
+    # the H&E image, clears results, and redraws the map. Called by BOTH the
+    # upload handler and the "Use Example Data" button so the example can be
+    # reloaded on demand (Reviewer 3, item 1).
+    apply_loaded_seurat <- function(new_seurat) {
         # Replace the global seurat object (dangerous but necessary for this use case)
         seurat_obj <<- new_seurat
 
@@ -1983,8 +2026,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         # Clear all selections and results
         drawn_feats(list())
         selected_spots(character(0))
-        group1_spots(character(0))
-        group2_spots(character(0))
+        reset_groups()
         current_values(NULL)
         deg_results(NULL)
         violin_data(NULL)
@@ -2034,6 +2076,49 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         showNotification(paste("Successfully loaded", current_sample_name(), "with",
                                nrow(spots_sf), "spots. All analyses will now use this new dataset."),
                          type = "message", duration = 7)
+    }
+
+    observeEvent(input$load_uploaded_seurat, {
+      req(input$upload_seurat)
+
+      # Show loading overlay with custom message
+      shinyjs::runjs("
+        $('#loading_message').text('Uploading and processing new dataset...');
+        $('#loading_overlay').addClass('active');
+      ")
+
+      showNotification("Loading new Seurat object...", type = "message", duration = NULL, id = "load_seurat")
+
+      # Add a small delay to ensure loading screen shows
+      Sys.sleep(0.3)
+
+      tryCatch({
+        # Load the new Seurat object
+        new_seurat <- readRDS(input$upload_seurat$datapath)
+
+        new_seurat <- tryCatch(
+          UpdateSeuratObject(new_seurat),
+          error = function(e) {
+            message("UpdateSeuratObject failed, using original: ", e$message)
+            readRDS(input$upload_seurat$datapath)  # reload original
+          }
+        )
+
+        # Update sample name from uploaded file
+        uploaded_filename <- tools::file_path_sans_ext(input$upload_seurat$name)
+        current_sample_name(uploaded_filename)
+
+        # Validate it's a Seurat object
+        if (!inherits(new_seurat, "Seurat")) {
+          stop("Uploaded file is not a valid Seurat object")
+        }
+
+        # Check for spatial images
+        if (length(new_seurat@images) == 0) {
+          stop("No spatial images found in the uploaded Seurat object")
+        }
+
+        apply_loaded_seurat(new_seurat)
 
       }, error = function(e) {
         removeNotification(id = "load_seurat")
@@ -2229,8 +2314,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         # ── 7. Clear state and redraw map ─────────────────────────────────────
         drawn_feats(list())
         selected_spots(character(0))
-        group1_spots(character(0))
-        group2_spots(character(0))
+        reset_groups()
         current_values(NULL)
         deg_results(NULL)
         gene_set_scores(list())
@@ -2279,8 +2363,42 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
     # Use Example Data button handler
     observeEvent(input$use_example_data, {
-      showNotification("You are currently using the example dataset. The example data is loaded by default.",
-                       type = "message", duration = 5)
+      # Reviewer 3, item 1: actually (re)load the bundled server-side example
+      # dataset instead of just showing a message. This makes the example load
+      # reliably and lets a user who uploaded their own data return to the demo.
+      # Reuses the shared apply_loaded_seurat() loader.
+      shinyjs::runjs("
+        $('#loading_message').text('Loading example dataset...');
+        $('#loading_overlay').addClass('active');
+      ")
+      showNotification("Loading example dataset...", type = "message",
+                       duration = NULL, id = "load_seurat")
+      Sys.sleep(0.3)
+
+      tryCatch({
+        example_path <- system.file("extdata", "example_visium.rds", package = "SpatialScope")
+        if (example_path == "" || !file.exists(example_path)) {
+          # source / dev fallback when the package isn't installed
+          example_path <- file.path("inst", "extdata", "example_visium.rds")
+        }
+        if (!file.exists(example_path)) {
+          stop("Example dataset not found on the server (expected inst/extdata/example_visium.rds).")
+        }
+
+        new_seurat <- readRDS(example_path)
+        new_seurat <- tryCatch(UpdateSeuratObject(new_seurat), error = function(e) new_seurat)
+
+        if (!inherits(new_seurat, "Seurat")) stop("Example dataset is not a valid Seurat object.")
+        if (length(new_seurat@images) == 0)  stop("Example dataset has no spatial images.")
+
+        current_sample_name("Example_Visium")
+        apply_loaded_seurat(new_seurat)   # swaps in session data, refreshes UI, redraws map
+      }, error = function(e) {
+        removeNotification(id = "load_seurat")
+        shinyjs::runjs("$('#loading_overlay').removeClass('active');")
+        showNotification(paste("Error loading example data:", e$message),
+                         type = "error", duration = 10)
+      })
     })
 
     # Selection summary
@@ -2301,8 +2419,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     observeEvent(input$clear_selection_click, {
       drawn_feats(list())
       selected_spots(character(0))
-      group1_spots(character(0))  # Clear Group 1
-      group2_spots(character(0))  # Clear Group 2
+      reset_groups()  # Clear all ROI groups
       session$sendCustomMessage("clearFreehandDrawings", list())
       leafletProxy("map") %>%
         clearGroup("drawn") %>%
@@ -2379,6 +2496,19 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         return()
       }
 
+      # Diagnostic guard (Reviewer 1 #6): a valid reference is ~20 MB. A tiny file
+      # here means the .rds did not deploy correctly — typically a Git-LFS pointer
+      # stub or a truncated copy — which makes readRDS fail with the cryptic
+      # "unknown input format". Catch that case and report the real cause.
+      if (file.size(path) < 1e6) {
+        output$ref_status <- renderText(paste0(
+          "✗ Reference file looks incomplete (", file.size(path),
+          " bytes; expected ~20 MB). It may not have deployed correctly ",
+          "(e.g., a Git-LFS pointer stub). Re-deploy the full CRC_reference_RCTD.rds."
+        ))
+        return()
+      }
+
       output$ref_status <- renderText("⏳ Loading built-in reference...")
       tryCatch({
         ref <- readRDS(path)
@@ -2408,7 +2538,12 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           )
         }
       }, error = function(e) {
-        output$ref_status <- renderText(paste("✗ Error:", e$message))
+        # Make the classic readRDS failure ("unknown input format") actionable.
+        detail <- if (grepl("unknown input format|magic number|not a|corrupt",
+                            e$message, ignore.case = TRUE)) {
+          " — the reference file failed to load; it may not have deployed correctly (expected a ~20 MB RDS, not an LFS pointer)."
+        } else ""
+        output$ref_status <- renderText(paste0("✗ Error: ", e$message, detail))
       })
     })
 
@@ -2446,6 +2581,27 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           "spacexr not installed. Run: devtools::install_github('dmcable/spacexr')",
           type = "error", duration = 15
         )
+        return()
+      }
+
+      # Diagnostic guard (Reviewer 1 #6 / Reviewer 3 #3): the deployed spacexr can
+      # be a wrong/old version or a partial install that does not export the
+      # functions we call. Detect that up front and report the actual problem
+      # instead of surfacing a cryptic "'Reference' is not an exported object"
+      # crash mid-run. The real fix is pinning spacexr on the server (renv).
+      spacexr_exports <- getNamespaceExports("spacexr")
+      missing_api <- setdiff(c("Reference", "SpatialRNA", "create.RCTD", "run.RCTD"),
+                             spacexr_exports)
+      if (length(missing_api) > 0) {
+        removeNotification(id = "rctd_running")
+        msg <- paste0(
+          "Incompatible spacexr version on this server (", packageVersion("spacexr"),
+          "): missing ", paste(missing_api, collapse = ", "),
+          ". Reinstall a compatible build, e.g. ",
+          "remotes::install_github('dmcable/spacexr')."
+        )
+        showNotification(msg, type = "error", duration = 20)
+        output$ref_status <- renderText(paste("✗", msg))
         return()
       }
 
@@ -3848,16 +4004,104 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     }, ignoreInit = TRUE)
 
 
+    # Redraw the Group 1 / Group 2 overlay so it PERSISTS across map redraws.
+    # Clears any existing overlay first, then re-adds it only when the
+    # "Show Groups on Map" checkbox is enabled. Single source of truth shared by
+    # the checkbox observer and update_map_colors() (Reviewer 1, item 2: the
+    # overlay should stay visible until the user explicitly unchecks the box,
+    # instead of vanishing whenever the gene / palette / spot size changes).
+    # Convert stored drawn features (GeoJSON polygons from the freehand tool)
+    # into a list of {lng, lat} boundary rings, in the map's spot coordinate
+    # space (Reviewer 1, item 3).
+    extract_roi_rings <- function(feats) {
+      rings <- list()
+      for (feat in feats) {
+        if (isTRUE(feat$type == "Feature") &&
+            !is.null(feat$geometry) && identical(feat$geometry$type, "Polygon")) {
+          pc <- feat$geometry$coordinates[[1]]
+          if (length(pc) >= 2) {
+            rings[[length(rings) + 1]] <- list(
+              lng = vapply(pc, function(p) as.numeric(p[[1]]), numeric(1)),
+              lat = vapply(pc, function(p) as.numeric(p[[2]]), numeric(1))
+            )
+          }
+        }
+      }
+      rings
+    }
+
+    # Draw each ROI ring as a high-contrast contour: a white casing underneath
+    # with a black dashed line on top, so it reads over both dark and bright
+    # expression (Reviewer 1, item 3). Fixed style, no user customization.
+    add_roi_contour <- function(proxy, rings) {
+      for (r in rings) {
+        if (length(r$lng) >= 2) {
+          proxy <- proxy %>%
+            addPolylines(lng = r$lng, lat = r$lat, color = "white",
+                         weight = 5, opacity = 1, group = "roi_contour") %>%
+            addPolylines(lng = r$lng, lat = r$lat, color = "black",
+                         weight = 2, opacity = 1, dashArray = "6,8",
+                         group = "roi_contour")
+        }
+      }
+      proxy
+    }
+
+    draw_group_overlay <- function() {
+      proxy <- leafletProxy("map") %>%
+        clearGroup("group1_display") %>%
+        clearGroup("group2_display") %>%
+        clearGroup("roi_contour")
+
+      # Group member dots ("Show Groups on Map").
+      if (isTRUE(input$show_groups)) {
+        g1 <- group1_spots()
+        g2 <- group2_spots()
+
+        if (length(g1) > 0) {
+          g1_indices <- which(spots_sf$spot_id %in% g1)
+          proxy <- proxy %>%
+            addCircleMarkers(
+              lng = spots_sf$x[g1_indices],
+              lat = spots_sf$y[g1_indices],
+              radius = 4, stroke = TRUE, color = "darkred", weight = 2,
+              opacity = if (isTRUE(input$transparent_groups)) 0.6 else 1,
+              fillColor = "red", fillOpacity = if (isTRUE(input$transparent_groups)) 0 else 0.8,
+              group = "group1_display"
+            )
+        }
+        if (length(g2) > 0) {
+          g2_indices <- which(spots_sf$spot_id %in% g2)
+          proxy <- proxy %>%
+            addCircleMarkers(
+              lng = spots_sf$x[g2_indices],
+              lat = spots_sf$y[g2_indices],
+              radius = 4, stroke = TRUE, color = "darkblue", weight = 2,
+              opacity = if (isTRUE(input$transparent_groups)) 0.6 else 1,
+              fillColor = "blue", fillOpacity = if (isTRUE(input$transparent_groups)) 0 else 0.8,
+              group = "group2_display"
+            )
+        }
+      }
+
+      # ROI boundary contours ("Show ROI contours") — independent of the dot
+      # overlay and re-applied on every redraw so they persist (Reviewer 1, item 3).
+      if (isTRUE(input$show_roi_contours)) {
+        proxy <- add_roi_contour(proxy, group1_roi())
+        proxy <- add_roi_contour(proxy, group2_roi())
+      }
+
+      invisible(NULL)
+    }
+
     update_map_colors <- function() {
       values <- current_values()
       spot_radius <- input$spot_size
 
-      # Clear groups when updating visualization
-      leafletProxy("map") %>%
-        clearGroup("group1_display") %>%
-        clearGroup("group2_display")
-
-      updateCheckboxInput(session, "show_groups", value = FALSE)
+      # NOTE (Reviewer 1, item 2): the group overlay is intentionally NOT
+      # force-cleared here and the "Show Groups on Map" checkbox is NOT reset.
+      # The overlay is re-applied at the end via draw_group_overlay() so it
+      # persists across gene / palette / spot-size changes.
 
       if (is.null(values)) {
         colors <- rep("lightblue", nrow(spots_sf))
@@ -3892,7 +4136,10 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           fillOpacity = 1,
           group = "spots"
         )
-        
+
+      # Re-apply the group overlay on top of the freshly drawn spots so it
+      # persists across this redraw (Reviewer 1, item 2).
+      draw_group_overlay()
     }
 
     output$color_legend <- renderPlot({
@@ -4328,8 +4575,9 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     observeEvent(input$save_group1_map, {
       sel <- selected_spots()
       if (length(sel) > 0) {
-        group1_spots(sel)
+        set_group_spots("Group 1", sel)
         output_group1(sel)  # Save to export variable
+        set_group_rois("Group 1", extract_roi_rings(drawn_feats()))  # Capture ROI boundary before clearing (item 3)
         showNotification(paste("Saved", length(sel), "spots to Group 1"), type = "message")
 
         # Clear selection after saving
@@ -4362,8 +4610,9 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     observeEvent(input$save_group2_map, {
       sel <- selected_spots()
       if (length(sel) > 0) {
-        group2_spots(sel)
+        set_group_spots("Group 2", sel)
         output_group2(sel)  # Save to export variable
+        set_group_rois("Group 2", extract_roi_rings(drawn_feats()))  # Capture ROI boundary before clearing (item 3)
         showNotification(paste("Saved", length(sel), "spots to Group 2"), type = "message")
 
         # Clear selection after saving
@@ -4403,43 +4652,20 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       if (length(g2) == 0) "Group 2: Empty" else paste("Group 2:", length(g2), "spots")
     })
 
+    # Redraw the overlay whenever the checkbox, the group memberships, or the
+    # transparency option change. Reading each reactive here registers the
+    # dependency, then delegates to draw_group_overlay() so the toggle path and
+    # the persist-on-redraw path (update_map_colors) share one implementation
+    # (Reviewer 1, item 2).
     observe({
-      if (input$show_groups) {
-        g1 <- group1_spots()
-        g2 <- group2_spots()
-
-        proxy <- leafletProxy("map") %>%
-          clearGroup("group1_display") %>%
-          clearGroup("group2_display")
-
-        if (length(g1) > 0) {
-          g1_indices <- which(spots_sf$spot_id %in% g1)
-          proxy <- proxy %>%
-            addCircleMarkers(
-              lng = spots_sf$x[g1_indices],
-              lat = spots_sf$y[g1_indices],
-              radius = 4, stroke = TRUE, color = "darkred", weight = 2,
-              opacity = if (isTRUE(input$transparent_groups)) 0.6 else 1,
-              fillColor = "red", fillOpacity = if (isTRUE(input$transparent_groups)) 0 else 0.8, group = "group1_display"
-            )
-        }
-
-        if (length(g2) > 0) {
-          g2_indices <- which(spots_sf$spot_id %in% g2)
-          proxy <- proxy %>%
-            addCircleMarkers(
-              lng = spots_sf$x[g2_indices],
-              lat = spots_sf$y[g2_indices],
-              radius = 4, stroke = TRUE, color = "darkblue", weight = 2,
-              opacity = if (isTRUE(input$transparent_groups)) 0.6 else 1,
-              fillColor = "blue", fillOpacity = if (isTRUE(input$transparent_groups)) 0 else 0.8, group = "group2_display"
-            )
-        }
-      } else {
-        leafletProxy("map") %>%
-          clearGroup("group1_display") %>%
-          clearGroup("group2_display")
-      }
+      input$show_groups
+      input$show_roi_contours
+      group1_spots()
+      group2_spots()
+      group1_roi()
+      group2_roi()
+      input$transparent_groups
+      draw_group_overlay()
     }, priority = 1000)
 
 
