@@ -824,7 +824,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                         # ② Optionally group several named ROIs for group-vs-group.
                         tags$div(style = "background:white; padding:14px 18px; border-radius:10px; box-shadow:0 3px 14px rgba(0,0,0,0.25); display:flex; flex-direction:column; gap:10px; min-width:440px; max-width:580px;",
                                  tags$div(style = "font-weight:700; font-size:14px; color:#2c3e50;",
-                                          "① Draw a region, then name and save it"),
+                                          "① Draw a region"),
                                  tags$div(style = "display:flex; gap:12px; align-items:flex-end;",
                                           div(style = "flex:1;",
                                               textInput("roi_name", NULL, value = "ROI 1",
@@ -836,7 +836,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                  uiOutput("roi_chips"),
                                  tags$hr(style = "margin:4px 0; border-top:1px solid #eee;"),
                                  tags$div(style = "font-weight:700; font-size:14px; color:#2c3e50;",
-                                          "② Group ROIs (optional — for group-vs-group)"),
+                                          "② Group ROIs"),
                                  tags$div(style = "display:flex; gap:12px; align-items:flex-end;",
                                           div(style = "flex:2;",
                                               selectizeInput("group_member_rois", NULL, choices = NULL, multiple = TRUE,
@@ -4607,19 +4607,27 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     })
 
     # Saved-ROIs list: color swatch, name, spot count, remove.
+    # Saved ROIs live in a collapsible dropdown so the panel stays compact even
+    # after many regions are drawn (expand to review / remove).
     output$roi_chips <- renderUI({
       r <- rois(); nm <- names(r)
       if (length(nm) == 0)
-        return(tags$em(style = "font-size:12px; color:#888;", "No ROIs yet \u2014 draw a region and save it."))
-      tagList(lapply(seq_along(nm), function(i) {
-        cnt <- length(r[[nm[i]]]$spots); col <- group_color(i)
-        tags$div(style = "display:flex; align-items:center; gap:6px; font-size:12px;",
-                 tags$span(style = sprintf("display:inline-block; width:12px; height:12px; border-radius:3px; background:%s;", col)),
-                 tags$span(style = "flex:1;", sprintf("%s  (%d spots)", nm[i], cnt)),
-                 tags$button("\u2715", title = "Remove ROI",
-                             style = "border:none; background:none; cursor:pointer; color:#c0392b; font-size:13px;",
-                             onclick = sprintf("Shiny.setInputValue('remove_roi','%s',{priority:'event'});", nm[i])))
-      }))
+        return(tags$div(style = "font-size:12px; color:#888;", "No regions saved yet."))
+      tags$details(style = "font-size:12px;",
+        tags$summary(style = "cursor:pointer; font-weight:600; color:#2c3e50;",
+                     sprintf("Saved ROIs (%d)", length(nm))),
+        tags$div(style = "margin-top:6px; display:flex; flex-direction:column; gap:4px; max-height:140px; overflow-y:auto;",
+          lapply(seq_along(nm), function(i) {
+            cnt <- length(r[[nm[i]]]$spots); col <- group_color(i)
+            tags$div(style = "display:flex; align-items:center; gap:6px;",
+                     tags$span(style = sprintf("display:inline-block; width:12px; height:12px; border-radius:3px; background:%s;", col)),
+                     tags$span(style = "flex:1;", sprintf("%s  (%d spots)", nm[i], cnt)),
+                     tags$button("\u2715", title = "Remove ROI",
+                                 style = "border:none; background:none; cursor:pointer; color:#c0392b; font-size:13px;",
+                                 onclick = sprintf("Shiny.setInputValue('remove_roi','%s',{priority:'event'});", nm[i])))
+          })
+        )
+      )
     })
 
     observeEvent(input$remove_roi, {
@@ -4654,18 +4662,24 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       showNotification(paste0("Created group '", gname, "' with ", length(members), " ROI(s)."), type = "message")
     })
 
-    # Groups list: name, member ROIs, remove.
+    # Groups also live in a collapsible dropdown to keep the panel compact.
     output$group_chips <- renderUI({
       g <- groups(); nm <- names(g)
-      if (length(nm) == 0) return(tags$em(style = "font-size:12px; color:#888;", "No groups yet."))
-      tagList(lapply(seq_along(nm), function(i) {
-        members <- g[[nm[i]]]$members
-        tags$div(style = "display:flex; align-items:center; gap:6px; font-size:12px;",
-                 tags$span(style = "flex:1;", sprintf("%s  {%s}", nm[i], paste(members, collapse = ", "))),
-                 tags$button("\u2715", title = "Remove group",
-                             style = "border:none; background:none; cursor:pointer; color:#c0392b; font-size:13px;",
-                             onclick = sprintf("Shiny.setInputValue('remove_group','%s',{priority:'event'});", nm[i])))
-      }))
+      if (length(nm) == 0) return(tags$div(style = "font-size:12px; color:#888;", "No groups yet."))
+      tags$details(style = "font-size:12px;",
+        tags$summary(style = "cursor:pointer; font-weight:600; color:#2c3e50;",
+                     sprintf("Groups (%d)", length(nm))),
+        tags$div(style = "margin-top:6px; display:flex; flex-direction:column; gap:4px; max-height:120px; overflow-y:auto;",
+          lapply(seq_along(nm), function(i) {
+            members <- g[[nm[i]]]$members
+            tags$div(style = "display:flex; align-items:center; gap:6px;",
+                     tags$span(style = "flex:1;", sprintf("%s  {%s}", nm[i], paste(members, collapse = ", "))),
+                     tags$button("\u2715", title = "Remove group",
+                                 style = "border:none; background:none; cursor:pointer; color:#c0392b; font-size:13px;",
+                                 onclick = sprintf("Shiny.setInputValue('remove_group','%s',{priority:'event'});", nm[i])))
+          })
+        )
+      )
     })
 
     observeEvent(input$remove_group, {
