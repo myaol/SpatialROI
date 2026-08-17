@@ -4049,46 +4049,41 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
     draw_group_overlay <- function() {
       proxy <- leafletProxy("map") %>%
-        clearGroup("group1_display") %>%
+        clearGroup("group_display") %>%
+        clearGroup("group1_display") %>%   # legacy layer names (harmless to clear)
         clearGroup("group2_display") %>%
         clearGroup("roi_contour")
 
-      # Group member dots ("Show Groups on Map").
-      if (isTRUE(input$show_groups)) {
-        g1 <- group1_spots()
-        g2 <- group2_spots()
+      g  <- groups()
+      nm <- names(g)
 
-        if (length(g1) > 0) {
-          g1_indices <- which(spots_sf$spot_id %in% g1)
+      # Group member dots ("Show Groups on Map") — one colored layer per group,
+      # supporting any number of groups (Reviewer 1, item 1).
+      if (isTRUE(input$show_groups) && length(nm) > 0) {
+        for (i in seq_along(nm)) {
+          spots <- g[[nm[i]]]$spots
+          if (length(spots) == 0) next
+          idx <- which(spots_sf$spot_id %in% spots)
+          if (length(idx) == 0) next
+          col <- group_color(i)
           proxy <- proxy %>%
             addCircleMarkers(
-              lng = spots_sf$x[g1_indices],
-              lat = spots_sf$y[g1_indices],
-              radius = 4, stroke = TRUE, color = "darkred", weight = 2,
+              lng = spots_sf$x[idx], lat = spots_sf$y[idx],
+              radius = 4, stroke = TRUE, color = col, weight = 2,
               opacity = if (isTRUE(input$transparent_groups)) 0.6 else 1,
-              fillColor = "red", fillOpacity = if (isTRUE(input$transparent_groups)) 0 else 0.8,
-              group = "group1_display"
-            )
-        }
-        if (length(g2) > 0) {
-          g2_indices <- which(spots_sf$spot_id %in% g2)
-          proxy <- proxy %>%
-            addCircleMarkers(
-              lng = spots_sf$x[g2_indices],
-              lat = spots_sf$y[g2_indices],
-              radius = 4, stroke = TRUE, color = "darkblue", weight = 2,
-              opacity = if (isTRUE(input$transparent_groups)) 0.6 else 1,
-              fillColor = "blue", fillOpacity = if (isTRUE(input$transparent_groups)) 0 else 0.8,
-              group = "group2_display"
+              fillColor = col,
+              fillOpacity = if (isTRUE(input$transparent_groups)) 0 else 0.8,
+              group = "group_display"
             )
         }
       }
 
-      # ROI boundary contours ("Show ROI contours") — independent of the dot
-      # overlay and re-applied on every redraw so they persist (Reviewer 1, item 3).
-      if (isTRUE(input$show_roi_contours)) {
-        proxy <- add_roi_contour(proxy, group1_roi())
-        proxy <- add_roi_contour(proxy, group2_roi())
+      # ROI boundary contours ("Show ROI contours") — all groups, high-contrast,
+      # re-applied on every redraw so they persist (Reviewer 1, item 3).
+      if (isTRUE(input$show_roi_contours) && length(nm) > 0) {
+        for (i in seq_along(nm)) {
+          proxy <- add_roi_contour(proxy, g[[nm[i]]]$rois)
+        }
       }
 
       invisible(NULL)
@@ -4660,10 +4655,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     observe({
       input$show_groups
       input$show_roi_contours
-      group1_spots()
-      group2_spots()
-      group1_roi()
-      group2_roi()
+      groups()                 # any change to any group's spots/ROIs
       input$transparent_groups
       draw_group_overlay()
     }, priority = 1000)
