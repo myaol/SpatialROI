@@ -1003,6 +1003,18 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
                                       fileInput("upload_visium_zip", "Upload Space Ranger Output (.zip)",
                                                 accept = c(".zip")),
+                                      # ⚙ Advanced settings (collapsed) — QC spot filters (Reviewer 2, item 3).
+                                      tags$details(style = "margin:6px 0;",
+                                        tags$summary(style = "cursor:pointer; font-weight:600; color:#2c3e50;",
+                                                     "⚙ QC settings"),
+                                        tags$div(style = "padding:8px 4px;",
+                                          numericInput("qc_min_features", "Min. genes per spot:", value = 200, min = 0, step = 50),
+                                          numericInput("qc_min_counts", "Min. counts per spot:", value = 500, min = 0, step = 100),
+                                          numericInput("qc_max_mt", "Max. % mitochondrial:", value = 30, min = 0, max = 100, step = 5),
+                                          tags$p(style = "font-size:11px; color:#7f8c8d;",
+                                                 "Applied to raw SpaceRanger output only. Uploaded Seurat objects are used as provided.")
+                                        )
+                                      ),
                                       actionButton("load_raw_visium", "Load 10x Visium Data",
                                                   class = "btn btn-success btn-block",
                                                   style = "margin-top: 8px;")
@@ -1058,6 +1070,18 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                                                   "Guide to Pharmacology" = "guide2pharmacology",
                                                                   "Ramilowski"            = "ramilowski"),
                                                     selected = c("cellchat", "kegg", "guide2pharmacology", "ramilowski")),
+
+                                  # ⚙ Advanced settings (collapsed) — Gaussian kernel bandwidth (Reviewer 1, item 4).
+                                  tags$details(style = "margin:6px 0;",
+                                    tags$summary(style = "cursor:pointer; font-weight:600; color:#2c3e50;",
+                                                 "⚙ Advanced settings"),
+                                    tags$div(style = "padding:8px 4px;",
+                                      numericInput("lr_bandwidth_mult", "Kernel bandwidth × (Gaussian σ multiplier):",
+                                                   value = 1.0, min = 0.25, max = 4, step = 0.25),
+                                      tags$p(style = "font-size:11px; color:#7f8c8d; margin-top:4px;",
+                                             "σ adapts to local spot spacing (median distance to the 12 nearest spots); this multiplies it. Larger = smoother, wider neighborhood.")
+                                    )
+                                  ),
 
                                   actionButton("run_lr_solo", " Run LR Scoring",
                                               class = "btn btn-primary btn-block",
@@ -2241,10 +2265,15 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         new_obj[["percent.mt"]] <- Seurat::PercentageFeatureSet(new_obj, pattern = "^MT-|^mt-")
         new_obj[["percent.rb"]] <- Seurat::PercentageFeatureSet(new_obj, pattern = "^RP[SL]|^Rp[sl]")
         n_before <- ncol(new_obj)
-        new_obj  <- subset(new_obj,
-                          subset = nFeature_Spatial > 200 &
-                                    nCount_Spatial   > 500 &
-                                    percent.mt       < 30)
+        # QC thresholds from the UI (Reviewer 2, item 3), with the original defaults.
+        nf_thr <- if (is.null(input$qc_min_features)) 200 else input$qc_min_features
+        nc_thr <- if (is.null(input$qc_min_counts))   500 else input$qc_min_counts
+        mt_thr <- if (is.null(input$qc_max_mt))         30 else input$qc_max_mt
+        .md <- new_obj@meta.data
+        keep_cells <- rownames(.md)[.md$nFeature_Spatial > nf_thr &
+                                    .md$nCount_Spatial   > nc_thr &
+                                    .md$percent.mt        < mt_thr]
+        new_obj  <- subset(new_obj, cells = keep_cells)
         n_after <- ncol(new_obj)
         showNotification(paste0("QC: kept ", n_after, "/", n_before, " spots"),
                         type = "message", duration = 5)
@@ -2958,6 +2987,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           # ── KNN ────────────────────────────────────────────────────────
           k_nbrs <- 12
           knn_nb <- spdep::knn2nb(spdep::knearneigh(coords_mat, k = k_nbrs))
+          # Gaussian-kernel bandwidth multiplier on the adaptive sigma (R1 #4).
+          bw_mult <- if (is.null(input$lr_bandwidth_mult) || input$lr_bandwidth_mult <= 0) 1 else input$lr_bandwidth_mult
 
           # ── Spatial lag for ligands ────────────────────────────────────
           unique_L   <- unique(lrpair_avail$from)
@@ -2971,7 +3002,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
               nb_idx <- knn_nb[[i]]
               if (length(nb_idx) > 0) {
                 dists  <- sqrt(rowSums((coords_mat[nb_idx, ] - coords_mat[i, ])^2))
-                sigma  <- median(dists)
+                sigma  <- median(dists) * bw_mult
                 w      <- exp(-dists^2 / (2 * sigma^2))
                 lag[i] <- (expr[i] + sum(expr[nb_idx] * w)) / (1 + sum(w))
               } else {
