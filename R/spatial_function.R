@@ -1061,8 +1061,11 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                               choices = c("Human" = "human", "Mouse" = "mouse"),
                                               selected = "human"),
 
-                                  selectInput("lr_solo_group", "Analyze group:",
-                                              choices = c("Group 1" = "group1", "Group 2" = "group2")),
+                                  radioButtons("lr_entity_type", "Analyze by:",
+                                               choices = c("Groups" = "Groups", "ROIs" = "ROIs"),
+                                               selected = "Groups", inline = TRUE),
+                                  selectizeInput("lr_solo_target", "Region:", choices = NULL,
+                                                 options = list(placeholder = "select an ROI or group")),
 
                                   checkboxGroupInput("lr_solo_db_filter", "Include databases:",
                                                     choices  = c("CellChat"              = "cellchat",
@@ -1416,8 +1419,10 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                    conditionalPanel(
                                      condition = "output.clustering_done",
                                      plotOutput("cluster_umap", height = "300px"),
+                                     downloadButton("dl_cluster_umap", "⬇ UMAP figure (PDF)",
+                                                    class = "btn btn-outline-secondary btn-sm"),
                                      br(),
-                                      downloadButton("dl_cluster", "Download Cluster Assignments", 
+                                      downloadButton("dl_cluster", "Download Cluster Assignments",
                                                     class = "btn btn-warning btn-block")
                                    )
                                )
@@ -1479,6 +1484,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                       div(style = "max-height: 400px; overflow-y: auto;",
                                           tableOutput("deg_table")),
                                   plotOutput("deg_volcano", height = "450px"),
+                                  downloadButton("dl_deg_volcano", "⬇ Volcano figure (PDF)",
+                                                 class = "btn btn-outline-secondary btn-sm"),
                                   plotOutput("deg_moran_volcano", height = "450px"),
 
                                       tags$p(style = "font-size:12px; color:#7f8c8d; margin-top: 6px;",
@@ -1528,7 +1535,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                    conditionalPanel(
                                      condition = "output.violin_available",
                                      plotOutput("violin_plot", height = "300px"),
-                                   
+                                     downloadButton("dl_violin_plot", "⬇ Violin figure (PDF)",
+                                                    class = "btn btn-outline-secondary btn-sm"),
                                       br(),
                                         downloadButton("dl_compare_plot_group", "Download Comparison Plot",
                                                       class = "btn btn-warning btn-block"))
@@ -1771,6 +1779,26 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     current_gene_set_score <- reactiveVal(NULL)
     cluster_results <- reactiveVal(NULL)
     showing_gene_set <- reactiveVal(FALSE)  # Track if we're displaying gene set scores
+
+    # ── Figure downloads (Reviewer 3, item 5) ─────────────────────────────────
+    # Each plot output captures its ggplot into one of these so it can be saved.
+    deg_volcano_rv  <- reactiveVal(NULL)
+    violin_rv       <- reactiveVal(NULL)
+    cluster_umap_rv <- reactiveVal(NULL)
+    # Shared publication-quality PDF download handler for a captured ggplot.
+    make_plot_download <- function(rv, stem, w = 8, h = 6) {
+      downloadHandler(
+        filename = function() paste0(stem, "_", format(Sys.time(), "%Y%m%d"), ".pdf"),
+        content  = function(file) {
+          p <- rv()
+          if (is.null(p)) { showNotification("Generate the plot first.", type = "warning"); return() }
+          ggplot2::ggsave(file, plot = p, width = w, height = h, dpi = 300, device = "pdf")
+        }
+      )
+    }
+    output$dl_deg_volcano  <- make_plot_download(deg_volcano_rv,  "DEG_volcano")
+    output$dl_violin_plot  <- make_plot_download(violin_rv,       "violin", w = 6, h = 6)
+    output$dl_cluster_umap <- make_plot_download(cluster_umap_rv, "UMAP_clusters", w = 7, h = 6)
 
     # Dynamic header title
     output$header_title <- renderText({
@@ -2909,14 +2937,25 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     outputOptions(output, "lr_solo_results_available", suspendWhenHidden = FALSE)
 
 
+    # Populate the LR region picker from ROIs or Groups (Reviewer 1, item 1).
+    observe({
+      choices <- if (identical(input$lr_entity_type, "ROIs")) roi_names() else group_names()
+      updateSelectizeInput(session, "lr_solo_target", choices = choices,
+                           selected = isolate(input$lr_solo_target))
+    })
+
     observeEvent(input$run_lr_solo, {
       req(seurat_obj)
 
-      grp   <- input$lr_solo_group
-      spots <- if (grp == "group1") group1_spots() else group2_spots()
+      grp   <- input$lr_solo_target
+      spots <- if (identical(input$lr_entity_type, "ROIs")) {
+        rr <- rois()[[grp]]; if (is.null(rr)) character(0) else rr$spots
+      } else {
+        group_spots_of(grp)
+      }
 
       if (length(spots) == 0) {
-        showNotification(paste("No spots saved to", grp), type = "error")
+        showNotification(paste0("'", grp, "' has no spots — pick a non-empty ROI/group."), type = "error")
         return()
       }
 
@@ -3063,7 +3102,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       df <- lr_solo_results()[, c("LR_Pair", "Ligand", "Receptor", "Mean_Score")]
       df$Mean_Score <- round(df$Mean_Score, 4)
       df
-    }, rownames = FALSE, filter = "none",
+    }, rownames = FALSE, filter = "none", selection = "single",
       options = list(
         pageLength = 10,
         lengthChange = FALSE,
@@ -3083,21 +3122,14 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       updateSelectInput(session, "lr_pair_viz", choices = lr_solo_results()$LR_Pair)
     })
 
-    # ── Show on main map ────────────────────────────────────────────────────
-    observeEvent(input$show_lr_on_map, {
-      req(lr_solo_score_matrix(), input$lr_pair_viz)
-
+    # ── Show an LR pair on the main map (shared by the button and row-click) ──
+    plot_lr_pair <- function(pair) {
       score_mat <- lr_solo_score_matrix()
-      pair      <- input$lr_pair_viz
-
-      if (!pair %in% colnames(score_mat)) {
-        showNotification("LR pair not found.", type = "error")
-        return()
+      if (is.null(score_mat) || is.null(pair) || !pair %in% colnames(score_mat)) {
+        showNotification("LR pair not found.", type = "error"); return(invisible(NULL))
       }
-
       scores    <- score_mat[, pair]
       all_spots <- rownames(seurat_obj@meta.data)
-
       full_scores <- setNames(rep(NA_real_, length(all_spots)), all_spots)
       full_scores[names(scores)] <- scores
 
@@ -3107,13 +3139,30 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       is_categorical(FALSE)
       updateSelectInput(session, "color_scheme", selected = "greyred")
       update_map_colors()
-
       showNotification(paste0("Showing: ", pair), type = "message", duration = 3)
+      invisible(NULL)
+    }
+
+    # Dropdown + "Show on Map" button (kept as a fallback).
+    observeEvent(input$show_lr_on_map, {
+      req(lr_solo_score_matrix(), input$lr_pair_viz)
+      plot_lr_pair(input$lr_pair_viz)
+    })
+
+    # Reviewer 1, item 5: clicking a row in the LR table drives the spatial plot
+    # directly, so the table and the map stay in sync.
+    observeEvent(input$lr_simple_table_rows_selected, {
+      req(lr_solo_results(), lr_solo_score_matrix())
+      row <- input$lr_simple_table_rows_selected
+      if (length(row) == 0) return()
+      pair <- lr_solo_results()$LR_Pair[row]
+      updateSelectInput(session, "lr_pair_viz", selected = pair)
+      plot_lr_pair(pair)
     })
 
     # ── Download ────────────────────────────────────────────────────────────
     output$dl_lr_solo <- downloadHandler(
-      filename = function() paste0("LR_scores_", input$lr_solo_group, "_",
+      filename = function() paste0("LR_scores_", input$lr_solo_target, "_",
                                     format(Sys.time(), "%Y%m%d"), ".csv"),
       content  = function(file) {
         req(lr_solo_results())
@@ -3639,11 +3688,12 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       cluster_res <- cluster_results()
       if (!is.null(cluster_res)) {
 
-        DimPlot(cluster_res$seurat, reduction = "umap", label = TRUE,
+        p <- DimPlot(cluster_res$seurat, reduction = "umap", label = TRUE,
                 pt.size = 0.5,
                 cols = if(!is.null(cluster_colors_palette())) cluster_colors_palette() else NULL) +
-                
           ggtitle(paste("UMAP - Resolution:", cluster_res$resolution))
+        cluster_umap_rv(p)
+        p
       }
     })
     output$dl_cluster <- downloadHandler(
@@ -5091,7 +5141,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       top_down <- head(df[df$color == "Down", ][order( df[df$color == "Down", ]$avg_log2FC), ], 8)
       df$label <- ifelse(df$gene %in% c(top_up$gene, top_down$gene), df$gene, NA)
 
-      ggplot(df, aes(x = avg_log2FC, y = -log10(p_val_adj), color = color)) +
+      p <- ggplot(df, aes(x = avg_log2FC, y = -log10(p_val_adj), color = color)) +
         geom_point(aes(alpha = ifelse(color == "NS", 0.3, 0.7)), size = 2.5, show.legend = FALSE) +
         scale_alpha_identity()  +
         scale_color_manual(values = c("Up" = "#8B0000", "Down" = "#4472C4", "NS" = "grey70")) +
@@ -5100,10 +5150,12 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         ggrepel::geom_text_repel(aes(label = label), size = 3, max.overlaps = 15, box.padding = 0.5,
                                   na.rm = TRUE, color = "black") +
         theme_classic(base_size = 13) +
-        labs(x = "log2 Fold Change", y = "-log10(FDR)", 
+        labs(x = "log2 Fold Change", y = "-log10(FDR)",
             title = "Differential Expression", color = "") +
         theme(legend.position = "top",
               plot.title = element_text(hjust = 0.5, face = "bold"), legend.text = element_text(size = 10))
+      deg_volcano_rv(p)
+      p
     }, height = 450)
 
 
@@ -5322,7 +5374,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           scale_fill_manual(values = c("Group 1" = "#E41A1C", "Group 2" = "#377EB8", "Rest" = "#999999"))
 
         last_group_plot(p_violin)   # ← THIS is what was missing
-        print(p_violin)          
+        violin_rv(p_violin)         # capture for figure download (R3 #5)
+        print(p_violin)
       }
     })
 
