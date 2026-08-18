@@ -1422,19 +1422,29 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                ),
                                div(class = "control-section",
                                    h4("Analysis"),
-                                   selectInput("deg_comparison", "Compare:",
-                                               choices = c("Group 1 vs Rest",
-                                                           "Group 2 vs Rest",
-                                                           "Group 1 vs Group 2",
-                                                           "Clusters in Group 1 (one vs rest)",
-                                                           "Clusters in Group 2 (one vs rest)")),
-                                   conditionalPanel(
-                                     condition = "input.deg_comparison == 'Clusters in Group 1 (one vs rest)' || input.deg_comparison == 'Clusters in Group 2 (one vs rest)'",
-                                     tags$p(style = "font-size: 12px; color: #e67e22; margin: 10px 0;",
-                                            "⚠️ Clustering must be run first on the selected group")
+                                   # Compare ROI-vs-ROI or Group-vs-Group (Reviewer 1, item 1).
+                                   radioButtons("deg_entity_type", "Compare by:",
+                                                choices = c("Groups" = "Groups", "ROIs" = "ROIs"),
+                                                selected = "Groups", inline = TRUE),
+                                   selectizeInput("deg_side_a", "Side A:", choices = NULL,
+                                                  options = list(placeholder = "select A")),
+                                   selectizeInput("deg_side_b", "Side B:", choices = NULL,
+                                                  options = list(placeholder = "select B or Rest of tissue")),
+                                   # ⚙ Advanced settings (collapsed) — DE test + thresholds (Reviewer 2, item 3).
+                                   tags$details(style = "margin:6px 0;",
+                                     tags$summary(style = "cursor:pointer; font-weight:600; color:#2c3e50;",
+                                                  "⚙ Advanced settings"),
+                                     tags$div(style = "padding:8px 4px;",
+                                       selectInput("deg_test", "DE test:",
+                                                   choices = c("Wilcoxon" = "wilcox", "t-test" = "t",
+                                                               "Logistic regression" = "LR", "ROC" = "roc"),
+                                                   selected = "wilcox"),
+                                       numericInput("deg_logfc", "|log2FC| ≥", value = 0.25, min = 0, max = 5, step = 0.05),
+                                       numericInput("deg_minpct", "Min. spot fraction (min.pct):", value = 0.05, min = 0, max = 1, step = 0.01),
+                                       sliderInput("volcano_fdr", "Adjusted p (BH) threshold:", min = 0.01, max = 0.2,
+                                                   value = 0.05, step = 0.01)
+                                     )
                                    ),
-                                   sliderInput("volcano_fdr", "FDR threshold:", min = 0.01, max = 0.2,
-                                                value = 0.05, step = 0.01),
                                    actionButton("run_deg", "Find DEGs", class = "btn btn-danger btn-block"),
                                    
                                ),
@@ -4714,31 +4724,40 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
     ###1
     # DEG Analysis
+    # Populate the Side A / Side B pickers from ROIs or Groups (Reviewer 1, item 1).
+    observe({
+      choices <- if (identical(input$deg_entity_type, "ROIs")) roi_names() else group_names()
+      updateSelectizeInput(session, "deg_side_a", choices = choices,
+                           selected = isolate(input$deg_side_a))
+      updateSelectizeInput(session, "deg_side_b",
+                           choices = c(choices, "Rest of tissue" = "__rest__"),
+                           selected = isolate(input$deg_side_b))
+    })
+
     observeEvent(input$run_deg, {
       # Force sequential IMMEDIATELY before FindMarkers is called
       future::plan("sequential")
 
-      g1 <- group1_spots()
-      g2 <- group2_spots()
+      # ── Two-tier comparison: resolve Side A / Side B from the ROI/group pickers ──
+      entity_type <- if (is.null(input$deg_entity_type)) "Groups" else input$deg_entity_type
+      spots_of <- function(nm) {
+        if (is.null(nm) || nm == "") return(character(0))
+        if (entity_type == "ROIs") { rr <- rois()[[nm]]; if (is.null(rr)) character(0) else rr$spots }
+        else group_spots_of(nm)
+      }
+      vs_rest <- identical(input$deg_side_b, "__rest__")
+      g1 <- spots_of(input$deg_side_a)
+      g2 <- if (vs_rest) character(0) else spots_of(input$deg_side_b)
 
-      # Check if we're doing cluster-based analysis
-      is_cluster_analysis <- grepl("Clusters in Group", input$deg_comparison)
+      # Cluster-level DEG lives in the Clustering tab; the DEG tab compares regions.
+      is_cluster_analysis <- FALSE
 
       if (!is_cluster_analysis) {
-        # Original group-based analysis
-        if (input$deg_comparison == "Group 1 vs Rest" && length(g1) == 0) {
-          showNotification("Group 1 is empty!", type = "error")
-          return()
+        if (length(g1) == 0) {
+          showNotification("Side A is empty — pick a non-empty ROI/group.", type = "error"); return()
         }
-
-        if (input$deg_comparison == "Group 2 vs Rest" && length(g2) == 0) {
-          showNotification("Group 2 is empty!", type = "error")
-          return()
-        }
-
-        if (input$deg_comparison == "Group 1 vs Group 2" && (length(g1) == 0 || length(g2) == 0)) {
-          showNotification("Both groups must have spots!", type = "error")
-          return()
+        if (!vs_rest && length(g2) == 0) {
+          showNotification("Side B is empty — pick a non-empty ROI/group, or 'Rest of tissue'.", type = "error"); return()
         }
 
         showNotification("Running DEG analysis...", type = "message", duration = NULL, id = "deg_running")
@@ -4747,37 +4766,32 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           temp_idents <- rep("Other", ncol(seurat_obj))
           names(temp_idents) <- colnames(seurat_obj)
           temp_idents[g1] <- "Group1"
-          temp_idents[g2] <- "Group2"
+          if (!vs_rest) temp_idents[g2] <- "Group2"
 
-          if (input$deg_comparison == "Group 1 vs Group 2") {
-            cells_to_use <- c(g1, g2)
-          } else {
-            cells_to_use <- colnames(seurat_obj)
-          }
+          cells_to_use <- if (!vs_rest) c(g1, g2) else colnames(seurat_obj)
 
           temp_seurat <- subset(seurat_obj, cells = cells_to_use)
           temp_seurat$temp_ident <- temp_idents[cells_to_use]
           Idents(temp_seurat) <- "temp_ident"
 
-          if (input$deg_comparison == "Group 1 vs Group 2") {
-            markers <- Seurat::FindMarkers(temp_seurat, ident.1 = "Group1", ident.2 = "Group2",
-                                  verbose = FALSE, min.pct = 0.05, logfc.threshold = 0.1)
-          } else if (input$deg_comparison == "Group 1 vs Rest") {
-            markers <- Seurat::FindMarkers(temp_seurat, ident.1 = "Group1", ident.2 = "Other",
-                                  verbose = FALSE, min.pct = 0.05, logfc.threshold = 0.1)
-          } else if (input$deg_comparison == "Group 2 vs Rest") {
-            markers <- Seurat::FindMarkers(temp_seurat, ident.1 = "Group2", ident.2 = "Other",
-                                  verbose = FALSE, min.pct = 0.05, logfc.threshold = 0.1)
-          }
+          deg_test   <- if (is.null(input$deg_test))   "wilcox" else input$deg_test
+          deg_lfc    <- if (is.null(input$deg_logfc))  0.25     else input$deg_logfc
+          deg_minpct <- if (is.null(input$deg_minpct)) 0.05     else input$deg_minpct
+
+          markers <- Seurat::FindMarkers(
+            temp_seurat, ident.1 = "Group1",
+            ident.2 = if (!vs_rest) "Group2" else "Other",
+            test.use = deg_test, verbose = FALSE,
+            min.pct = deg_minpct, logfc.threshold = deg_lfc)
 
 
 
 
           markers$gene <- rownames(markers)
-          # Filter by FDR and logFC threshold
-          markers <- markers[!is.na(markers$p_val_adj) & 
-                            markers$p_val_adj < input$volcano_fdr & 
-                            abs(markers$avg_log2FC) > 0.25, ]
+          # Filter by BH-adjusted p and the user's |log2FC| threshold
+          markers <- markers[!is.na(markers$p_val_adj) &
+                            markers$p_val_adj < input$volcano_fdr &
+                            abs(markers$avg_log2FC) > deg_lfc, ]
           # Rank by log2FC
           markers <- markers[order(-abs(markers$avg_log2FC)), ]          
 
@@ -4787,7 +4801,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
               coords_full <- Seurat::GetTissueCoordinates(seurat_obj)  
               message("DEBUG group colnames: ", paste(colnames(coords_full), collapse=", "))
               message("DEBUG coord_cols found: ", paste(intersect(c("imagerow", "imagecol", "pxl_row_in_fullres", "pxl_col_in_fullres"), colnames(coords_full)), collapse=", "))           
-              moran_spots <- if (input$deg_comparison == "Group 2 vs Rest") g2 else g1
+              moran_spots <- g1   # Side A (the ROI/group being characterized)
               coords <- coords_full[rownames(coords_full) %in% moran_spots, ]
 
               row_col <- intersect(c("imagerow", "pxl_row_in_fullres", "y"), colnames(coords_full))[1]
