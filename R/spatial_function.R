@@ -822,40 +822,39 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                         # ── Two-tier ROI / Group panel (Reviewer 1, item 1) ────────────
                         # ① Draw a region → name it → Save region (named ROI).
                         # ② Optionally group several named ROIs for group-vs-group.
-                        tags$div(style = "background:white; padding:14px 18px; border-radius:10px; box-shadow:0 3px 14px rgba(0,0,0,0.25); display:flex; flex-direction:column; gap:10px; min-width:440px; max-width:580px;",
-                                 tags$div(style = "font-weight:700; font-size:14px; color:#2c3e50;",
-                                          "① Draw a region"),
-                                 tags$div(style = "display:flex; gap:12px; align-items:flex-end;",
-                                          div(style = "flex:1;",
-                                              textInput("roi_name", NULL, value = "ROI 1",
-                                                        placeholder = "e.g. Tumor edge", width = "100%")),
-                                          actionButton("save_roi_btn", "➕ Save region",
-                                                       class = "btn btn-primary",
-                                                       style = "height:44px; min-width:160px; font-size:15px; font-weight:700;")
+                        tags$div(style = "background:white; padding:10px 14px; border-radius:10px; box-shadow:0 3px 14px rgba(0,0,0,0.25); display:flex; flex-direction:row; gap:16px; align-items:flex-start;",
+                                 # Column ① — draw & save a named region
+                                 tags$div(style = "display:flex; flex-direction:column; gap:6px; width:270px;",
+                                   tags$div(style = "font-weight:700; font-size:13px; color:#2c3e50;", "① Draw a region"),
+                                   div(style = "width:100%;",
+                                       textInput("roi_name", NULL, value = "ROI 1",
+                                                 placeholder = "e.g. Tumor edge", width = "100%")),
+                                   actionButton("save_roi_btn", "➕ Save region",
+                                                class = "btn btn-primary", style = "width:100%; font-weight:700;"),
+                                   uiOutput("roi_chips")
                                  ),
-                                 uiOutput("roi_chips"),
-                                 tags$hr(style = "margin:4px 0; border-top:1px solid #eee;"),
-                                 tags$div(style = "font-weight:700; font-size:14px; color:#2c3e50;",
-                                          "② Group ROIs"),
-                                 tags$div(style = "display:flex; gap:12px; align-items:flex-end;",
-                                          div(style = "flex:2;",
-                                              selectizeInput("group_member_rois", NULL, choices = NULL, multiple = TRUE,
-                                                             options = list(placeholder = "pick ROIs"), width = "100%")),
-                                          div(style = "flex:1;",
-                                              textInput("group_name", NULL, placeholder = "group name", width = "100%")),
-                                          actionButton("create_group_btn", "＋ Group",
-                                                       class = "btn btn-success",
-                                                       style = "height:44px; white-space:nowrap; font-weight:700;")
-                                 ),
-                                 uiOutput("group_chips")
+                                 tags$div(style = "width:1px; align-self:stretch; background:#e5e7eb;"),
+                                 # Column ② — group ROIs for comparison
+                                 tags$div(style = "display:flex; flex-direction:column; gap:6px; width:270px;",
+                                   tags$div(style = "font-weight:700; font-size:13px; color:#2c3e50;", "② Group ROIs"),
+                                   div(style = "width:100%;",
+                                       selectizeInput("group_member_rois", NULL, choices = NULL, multiple = TRUE,
+                                                      options = list(placeholder = "pick ROIs"), width = "100%")),
+                                   div(style = "display:flex; gap:6px;",
+                                       div(style = "flex:1;",
+                                           textInput("group_name", NULL, placeholder = "group name", width = "100%")),
+                                       actionButton("create_group_btn", "＋ Group",
+                                                    class = "btn btn-success", style = "white-space:nowrap; font-weight:700;")),
+                                   uiOutput("group_chips")
+                                 )
                         ),
                         tags$div(style = "display: flex; flex-direction: column; gap: 6px;",
-                          checkboxInput("show_groups", "Show Groups on Map", value = FALSE),
-                          checkboxInput("transparent_groups", "Transparent Group Display", value = FALSE),
+                          checkboxInput("show_groups", "Show ROIs on Map", value = FALSE),
+                          checkboxInput("transparent_groups", "Transparent ROI Display", value = FALSE),
                           # Reviewer 1, item 3: high-contrast outline of each saved ROI so the
                           # boundary stays visible even over bright/high expression. Fixed
                           # white-cased black dashed style (no color/width options, by design).
-                          checkboxInput("show_roi_contours", "Show ROI contours", value = TRUE)
+                          checkboxInput("show_roi_contours", "Show ROI contours", value = FALSE)
                         )
                       )
              ),
@@ -1396,14 +1395,13 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                div(class = "panel-header", "📊 Clustering Analysis"),
                                div(class = "control-section",
                                    h4("Spot Selection"),
-                                   selectInput("cluster_spot_selection", "Cluster which spots:",
-                                               choices = c("All Spots" = "all",
-                                                           "Group 1 Only" = "group1",
-                                                           "Group 2 Only" = "group2"),
-                                               selected = "all"),
+                                   selectizeInput("cluster_region", "Cluster which spots:",
+                                                  choices = c("All spots" = "__all__"),
+                                                  selected = "__all__",
+                                                  options = list(placeholder = "All spots, an ROI, or a group")),
                                    textOutput("cluster_spot_count"),
                                    tags$p(style = "font-size: 12px; color: #7f8c8d; margin-top: 5px;",
-                                          "💡 Tip: Save spots to Group 1 or Group 2 first using the map buttons")
+                                          "💡 Tip: draw & save ROIs (or make a group) to cluster within a region")
                                ),
                                div(class = "control-section",
                                    h4("Parameters"),
@@ -1452,13 +1450,13 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                div(class = "control-section",
                                    h4("Analysis"),
                                    # Compare ROI-vs-ROI or Group-vs-Group (Reviewer 1, item 1).
-                                   radioButtons("deg_entity_type", "Compare by:",
-                                                choices = c("Groups" = "Groups", "ROIs" = "ROIs"),
-                                                selected = "Groups", inline = TRUE),
+                                   # Side A / Side B can each be any ROI or Group (cross-type allowed).
                                    selectizeInput("deg_side_a", "Side A:", choices = NULL,
-                                                  options = list(placeholder = "select A")),
+                                                  options = list(placeholder = "select an ROI or group")),
                                    selectizeInput("deg_side_b", "Side B:", choices = NULL,
-                                                  options = list(placeholder = "select B or Rest of tissue")),
+                                                  options = list(placeholder = "ROI/group, or Rest of tissue")),
+                                   tags$p(style = "font-size:11px; color:#7f8c8d; margin:2px 0;",
+                                          "Positive log2FC = higher in Side A."),
                                    # ⚙ Advanced settings (collapsed) — DE test + thresholds (Reviewer 2, item 3).
                                    tags$details(style = "margin:6px 0;",
                                      tags$summary(style = "cursor:pointer; font-weight:600; color:#2c3e50;",
@@ -1481,11 +1479,13 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                  condition = "output.deg_results_available",
                                  div(class = "control-section",
                                      h4("Top DEGs"),
+                                     tags$p(style = "font-size:12px; color:#2c3e50; font-weight:600;",
+                                            textOutput("deg_direction", inline = TRUE)),
                                       div(style = "max-height: 400px; overflow-y: auto;",
                                           tableOutput("deg_table")),
                                   plotOutput("deg_volcano", height = "450px"),
-                                  downloadButton("dl_deg_volcano", "⬇ Volcano figure (PDF)",
-                                                 class = "btn btn-outline-secondary btn-sm"),
+                                  downloadButton("dl_deg_volcano", "Download Volcano Figure (PDF)",
+                                                 class = "btn btn-warning btn-block"),
                                   plotOutput("deg_moran_volcano", height = "450px"),
 
                                       tags$p(style = "font-size:12px; color:#7f8c8d; margin-top: 6px;",
@@ -1526,8 +1526,11 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                       condition = "input.violin_feature_type == 'cellsig'",
                                       selectInput("violin_cellsig", "Cell Type:", choices = character(0))
                                     ),                                                               
-                                   selectInput("violin_comparison", "Compare:",
-                                               choices = c("Group 1 vs Rest", "Group 2 vs Rest", "Group 1 vs Group 2")),
+                                   # Side A / Side B can each be any ROI or Group (cross-type allowed).
+                                   selectizeInput("violin_side_a", "Side A:", choices = NULL,
+                                                  options = list(placeholder = "select an ROI or group")),
+                                   selectizeInput("violin_side_b", "Side B:", choices = NULL,
+                                                  options = list(placeholder = "ROI/group, or Rest of tissue")),
                                    selectInput("violin_stat_test", "Test:",
                                                choices = c("Wilcoxon" = "wilcox", "t-test" = "ttest"),
                                                selected = "wilcox"),
@@ -1535,8 +1538,6 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                    conditionalPanel(
                                      condition = "output.violin_available",
                                      plotOutput("violin_plot", height = "300px"),
-                                     downloadButton("dl_violin_plot", "⬇ Violin figure (PDF)",
-                                                    class = "btn btn-outline-secondary btn-sm"),
                                       br(),
                                         downloadButton("dl_compare_plot_group", "Download Comparison Plot",
                                                       class = "btn btn-warning btn-block"))
@@ -1754,6 +1755,29 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     group2_spots <- reactive(.grp_spots(2))
     group1_roi   <- reactive(.grp_rings(1))
     group2_roi   <- reactive(.grp_rings(2))
+
+    # ── Unified region picker (Reviewer feedback) ─────────────────────────────
+    # One choice list covering every ROI and Group, plus a resolver to spot IDs,
+    # so any analysis can compare across types (e.g. a Group vs a single ROI).
+    # Keys are prefixed "roi:" / "grp:"; "__rest__" means the rest of the tissue.
+    region_choices <- reactive({
+      rn <- roi_names(); gn <- group_names()
+      c(if (length(rn)) setNames(paste0("roi:", rn), paste0("ROI: ", rn)),
+        if (length(gn)) setNames(paste0("grp:", gn), paste0("Group: ", gn)))
+    })
+    region_spots <- function(key) {
+      if (is.null(key) || length(key) == 0 || key == "") return(character(0))
+      if (startsWith(key, "roi:")) { nm <- sub("^roi:", "", key); rr <- rois()[[nm]]; if (is.null(rr)) character(0) else rr$spots }
+      else if (startsWith(key, "grp:")) group_spots_of(sub("^grp:", "", key))
+      else character(0)
+    }
+    region_label <- function(key) {
+      if (is.null(key) || length(key) == 0 || key == "") return("")
+      if (identical(key, "__rest__")) return("Rest")
+      if (startsWith(key, "roi:")) sub("^roi:", "", key)
+      else if (startsWith(key, "grp:")) sub("^grp:", "", key)
+      else key
+    }
     cluster_colors_palette <- reactiveVal(NULL) 
     last_group_plot <- reactiveVal(NULL) 
 
@@ -3552,20 +3576,17 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       showNotification("Running clustering...", type = "message", duration = NULL, id = "clustering_run")
 
       tryCatch({
-        # Determine which spots to cluster based on selection
-        spots_to_cluster <- switch(input$cluster_spot_selection,
-                                   "all" = spots_sf$spot_id,
-                                   "group1" = output_group1(),
-                                   "group2" = output_group2()
-        )
+        # Determine which spots to cluster (All spots / an ROI / a group).
+        region_key <- input$cluster_region
+        spots_to_cluster <- if (is.null(region_key) || identical(region_key, "__all__")) {
+          spots_sf$spot_id
+        } else {
+          region_spots(region_key)
+        }
 
         # Validate that we have spots to cluster
         if (length(spots_to_cluster) == 0) {
-          stop(paste("No spots in",
-                     switch(input$cluster_spot_selection,
-                            "all" = "dataset",
-                            "group1" = "Group 1. Please save spots to Group 1 first.",
-                            "group2" = "Group 2. Please save spots to Group 2 first.")))
+          stop("No spots in the selected region — pick a non-empty ROI/group, or 'All spots'.")
         }
 
         spatial_obj <- subset(seurat_obj, cells = spots_to_cluster)
@@ -3622,17 +3643,13 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           clusters = clusters,
           resolution = input$cluster_resolution,
           n_clusters = length(unique(clusters)),
-          spot_selection = input$cluster_spot_selection,
+          spot_selection = if (is.null(region_key) || identical(region_key, "__all__")) "all" else region_label(region_key),
           n_spots = length(spots_to_cluster)
         ))
 
         removeNotification(id = "clustering_run")
 
-        selection_text <- switch(input$cluster_spot_selection,
-                                 "all" = "all spots",
-                                 "group1" = "Group 1 spots",
-                                 "group2" = "Group 2 spots"
-        )
+        selection_text <- if (is.null(region_key) || identical(region_key, "__all__")) "all spots" else region_label(region_key)
 
         showNotification(paste("Found", length(unique(clusters)), "clusters in",
                                length(spots_to_cluster), selection_text),
@@ -3668,17 +3685,19 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     })
     outputOptions(output, "clustering_done", suspendWhenHidden = FALSE)
 
-    # Show spot count for selected clustering option
-    output$cluster_spot_count <- renderText({
-      spot_count <- switch(input$cluster_spot_selection,
-                           "all" = nrow(spots_sf),
-                           "group1" = length(output_group1()),
-                           "group2" = length(output_group2())
-      )
+    # Keep the clustering region picker in sync with ROIs/Groups.
+    observe({
+      updateSelectizeInput(session, "cluster_region",
+                           choices = c("All spots" = "__all__", region_choices()),
+                           selected = isolate(input$cluster_region))
+    })
 
-      if (spot_count == 0 && input$cluster_spot_selection != "all") {
-        paste("⚠️ No spots saved in",
-              ifelse(input$cluster_spot_selection == "group1", "Group 1", "Group 2"))
+    # Show spot count for the selected clustering region.
+    output$cluster_spot_count <- renderText({
+      key <- input$cluster_region
+      spot_count <- if (is.null(key) || identical(key, "__all__")) nrow(spots_sf) else length(region_spots(key))
+      if (spot_count == 0) {
+        "⚠️ Selected region has no spots — draw & save an ROI, or pick 'All spots'."
       } else {
         paste("✓", spot_count, "spots will be clustered")
       }
@@ -4805,30 +4824,28 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
     ###1
     # DEG Analysis
-    # Populate the Side A / Side B pickers from ROIs or Groups (Reviewer 1, item 1).
+    # Populate the Side A / Side B pickers from all ROIs and Groups (Reviewer 1, item 1).
     observe({
-      choices <- if (identical(input$deg_entity_type, "ROIs")) roi_names() else group_names()
-      updateSelectizeInput(session, "deg_side_a", choices = choices,
+      rc <- region_choices()
+      updateSelectizeInput(session, "deg_side_a", choices = rc,
                            selected = isolate(input$deg_side_a))
       updateSelectizeInput(session, "deg_side_b",
-                           choices = c(choices, "Rest of tissue" = "__rest__"),
+                           choices = c(rc, "Rest of tissue" = "__rest__"),
                            selected = isolate(input$deg_side_b))
     })
+    deg_sideA_label <- reactiveVal("Side A")
+    deg_sideB_label <- reactiveVal("Side B")
 
     observeEvent(input$run_deg, {
       # Force sequential IMMEDIATELY before FindMarkers is called
       future::plan("sequential")
 
-      # ── Two-tier comparison: resolve Side A / Side B from the ROI/group pickers ──
-      entity_type <- if (is.null(input$deg_entity_type)) "Groups" else input$deg_entity_type
-      spots_of <- function(nm) {
-        if (is.null(nm) || nm == "") return(character(0))
-        if (entity_type == "ROIs") { rr <- rois()[[nm]]; if (is.null(rr)) character(0) else rr$spots }
-        else group_spots_of(nm)
-      }
+      # ── Resolve Side A / Side B from the unified ROI/group pickers ──
       vs_rest <- identical(input$deg_side_b, "__rest__")
-      g1 <- spots_of(input$deg_side_a)
-      g2 <- if (vs_rest) character(0) else spots_of(input$deg_side_b)
+      g1 <- region_spots(input$deg_side_a)
+      g2 <- if (vs_rest) character(0) else region_spots(input$deg_side_b)
+      deg_sideA_label(region_label(input$deg_side_a))
+      deg_sideB_label(if (vs_rest) "Rest" else region_label(input$deg_side_b))
 
       # Cluster-level DEG lives in the Clustering tab; the DEG tab compares regions.
       is_cluster_analysis <- FALSE
@@ -5086,6 +5103,12 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     })
     outputOptions(output, "deg_results_available", suspendWhenHidden = FALSE)
 
+    output$deg_direction <- renderText({
+      req(deg_results())
+      paste0(deg_sideA_label(), " vs ", deg_sideB_label(),
+             "  ·  positive log2FC = higher in ", deg_sideA_label())
+    })
+
     output$deg_table <- renderTable({
       deg <- deg_results()
       if (!is.null(deg)) {
@@ -5150,10 +5173,15 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         ggrepel::geom_text_repel(aes(label = label), size = 3, max.overlaps = 15, box.padding = 0.5,
                                   na.rm = TRUE, color = "black") +
         theme_classic(base_size = 13) +
-        labs(x = "log2 Fold Change", y = "-log10(FDR)",
-            title = "Differential Expression", color = "") +
+        labs(x = paste0("log2 Fold Change  (→ higher in ", deg_sideA_label(), ")"),
+             y = "-log10(FDR)",
+             title = "Differential Expression",
+             subtitle = paste0(deg_sideA_label(), "  vs  ", deg_sideB_label()),
+             color = "") +
         theme(legend.position = "top",
-              plot.title = element_text(hjust = 0.5, face = "bold"), legend.text = element_text(size = 10))
+              plot.title = element_text(hjust = 0.5, face = "bold"),
+              plot.subtitle = element_text(hjust = 0.5),
+              legend.text = element_text(size = 10))
       deg_volcano_rv(p)
       p
     }, height = 450)
@@ -5198,6 +5226,16 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     }, height = 400)
 
     # Violin plot
+    # Keep the violin Side A / Side B pickers in sync with ROIs/Groups.
+    observe({
+      rc <- region_choices()
+      updateSelectizeInput(session, "violin_side_a", choices = rc,
+                           selected = isolate(input$violin_side_a))
+      updateSelectizeInput(session, "violin_side_b",
+                           choices = c(rc, "Rest of tissue" = "__rest__"),
+                           selected = isolate(input$violin_side_b))
+    })
+
     observeEvent(input$plot_violin, {
       if (input$violin_feature_type == "gene") {
         feature <- input$violin_gene
@@ -5216,23 +5254,17 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         return()
       }
 
-      g1 <- group1_spots()
-      g2 <- group2_spots()
+      v_vs_rest <- identical(input$violin_side_b, "__rest__")
+      g1 <- region_spots(input$violin_side_a)
+      g2 <- if (v_vs_rest) character(0) else region_spots(input$violin_side_b)
+      vA <- region_label(input$violin_side_a)
+      vB <- if (v_vs_rest) "Rest" else region_label(input$violin_side_b)
 
-      # Validate based on comparison type
-      if (input$violin_comparison == "Group 1 vs Rest" && length(g1) == 0) {
-        showNotification("Group 1 is empty!", type = "error")
-        return()
+      if (length(g1) == 0) {
+        showNotification("Side A is empty — pick a non-empty ROI/group.", type = "error"); return()
       }
-
-      if (input$violin_comparison == "Group 2 vs Rest" && length(g2) == 0) {
-        showNotification("Group 2 is empty!", type = "error")
-        return()
-      }
-
-      if (input$violin_comparison == "Group 1 vs Group 2" && (length(g1) == 0 || length(g2) == 0)) {
-        showNotification("Both groups must have spots!", type = "error")
-        return()
+      if (!v_vs_rest && length(g2) == 0) {
+        showNotification("Side B is empty — pick a non-empty ROI/group, or 'Rest of tissue'.", type = "error"); return()
       }
 
       tryCatch({
@@ -5270,20 +5302,15 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           is_numeric_data <- TRUE
         }
 
-        if (input$violin_comparison == "Group 1 vs Group 2") {
+        if (!v_vs_rest) {
           cells_to_plot <- c(g1, g2)
-          group_label <- c(rep("Group 1", length(g1)), rep("Group 2", length(g2)))
+          group_label <- c(rep(vA, length(g1)), rep(vB, length(g2)))
           names(group_label) <- cells_to_plot
-        } else if (input$violin_comparison == "Group 1 vs Rest") {
+        } else {
           cells_to_plot <- spots_sf$spot_id
           group_label <- rep("Rest", length(cells_to_plot))
           names(group_label) <- cells_to_plot
-          group_label[g1] <- "Group 1"
-        } else if (input$violin_comparison == "Group 2 vs Rest") {
-          cells_to_plot <- spots_sf$spot_id
-          group_label <- rep("Rest", length(cells_to_plot))
-          names(group_label) <- cells_to_plot
-          group_label[g2] <- "Group 2"
+          group_label[g1] <- vA
         }
 
         valid_cells <- intersect(cells_to_plot, rownames(all_values))
@@ -5320,6 +5347,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
         attr(plot_data, "pvalue_test") <- pvalue_test
         attr(plot_data, "stat_test") <- input$violin_stat_test
+        attr(plot_data, "vA") <- vA
+        attr(plot_data, "vB") <- vB
 
         violin_data(plot_data)
 
@@ -5336,14 +5365,9 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     output$violin_plot <- renderPlot({
       plot_data <- violin_data()
       if (!is.null(plot_data) && plot_data$is_numeric[1]) {
-        # Get comparison type for title
-        comparison_text <- if(input$violin_comparison == "Group 1 vs Group 2") {
-          "Group 1 vs Group 2"
-        } else if(input$violin_comparison == "Group 2 vs Rest") {
-          "Group 2 vs Rest"
-        } else {
-          "Group 1 vs Rest"
-        }
+        # Title from the actual Side A / Side B labels.
+        vA <- attr(plot_data, "vA"); vB <- attr(plot_data, "vB")
+        comparison_text <- paste0(vA, " vs ", vB)
 
         # Calculate n for each group
         group_counts <- table(plot_data$group)
@@ -5370,8 +5394,13 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           theme_classic(base_size = 12) +
           theme(legend.position = "none",
                 plot.title = element_text(hjust = 0.5, face = "bold"),
-                plot.subtitle = element_text(hjust = 0.5)) +
-          scale_fill_manual(values = c("Group 1" = "#E41A1C", "Group 2" = "#377EB8", "Rest" = "#999999"))
+                plot.subtitle = element_text(hjust = 0.5))
+
+        lv <- unique(as.character(plot_data$group))
+        non_rest <- setdiff(lv, "Rest")
+        fill_cols <- setNames(rep("#999999", length(lv)), lv)
+        fill_cols[non_rest] <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3")[seq_along(non_rest)]
+        p_violin <- p_violin + scale_fill_manual(values = fill_cols)
 
         last_group_plot(p_violin)   # ← THIS is what was missing
         violin_rv(p_violin)         # capture for figure download (R3 #5)
@@ -5724,7 +5753,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
       filename = function() {
         pd <- violin_data()
-        grp <- gsub(" ", "_", input$violin_comparison)
+        grp <- gsub(" ", "_", paste0(region_label(input$violin_side_a), "_vs_", region_label(input$violin_side_b)))
 
         feature <- switch(input$violin_feature_type,
           "gene"     = input$violin_gene,
