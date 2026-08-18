@@ -4819,6 +4819,10 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
 
           markers$gene <- rownames(markers)
+          # Use Benjamini-Hochberg (FDR) correction rather than Seurat's default
+          # Bonferroni p_val_adj, so the "adjusted p (BH)" control is truthful
+          # and consistent with the rest of the app (Reviewer 2, item 7).
+          markers$p_val_adj <- p.adjust(markers$p_val, method = "BH")
           # Filter by BH-adjusted p and the user's |log2FC| threshold
           markers <- markers[!is.na(markers$p_val_adj) &
                             markers$p_val_adj < input$volcano_fdr &
