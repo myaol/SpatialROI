@@ -839,7 +839,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                    tags$div(style = "font-weight:700; font-size:13px; color:#2c3e50;", "② Group ROIs"),
                                    div(style = "width:100%;",
                                        selectizeInput("group_member_rois", NULL, choices = NULL, multiple = TRUE,
-                                                      options = list(placeholder = "pick ROIs"), width = "100%")),
+                                                      options = list(placeholder = "pick ROIs", dropdownParent = "body"),
+                                                      width = "100%")),
                                    div(style = "display:flex; gap:6px;",
                                        div(style = "flex:1;",
                                            textInput("group_name", NULL, placeholder = "group name", width = "100%")),
@@ -848,8 +849,13 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                    uiOutput("group_chips")
                                  )
                         ),
-                        tags$div(style = "display: flex; flex-direction: column; gap: 6px;",
+                        tags$div(style = "display: flex; flex-direction: column; gap: 6px; min-width:170px;",
                           checkboxInput("show_groups", "Show ROIs on Map", value = FALSE),
+                          # Optionally focus on a single ROI (default shows all).
+                          div(style = "font-size:12px;",
+                              selectizeInput("roi_show_filter", NULL, choices = c("All ROIs" = "__all__"),
+                                             selected = "__all__",
+                                             options = list(dropdownParent = "body"), width = "100%")),
                           checkboxInput("transparent_groups", "Transparent ROI Display", value = FALSE),
                           # Reviewer 1, item 3: high-contrast outline of each saved ROI so the
                           # boundary stays visible even over bright/high expression. Fixed
@@ -1095,17 +1101,10 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                     condition = "output.lr_solo_results_available",
                                     tags$hr(),
                                     h5("Top L-R Pairs by Mean Score"),
+                                    tags$p(style = "font-size: 12px; color: #7f8c8d; margin-bottom: 6px;",
+                                      "👉 Click a row to show that pair on the map (grey → red by ligand × receptor)."),
                                     DT::dataTableOutput("lr_simple_table"),
                                     hr(),
-                                    selectInput("lr_pair_viz", "Select LR Pair to Visualize on Map:", choices = NULL),
-                                    tags$p(style = "font-size: 11px; color: #7f8c8d; margin-top: -8px; margin-bottom: 8px;",
-                                      "🎨 Spots colored grey → red by ligand × receptor expression"),
-
-
-                                    actionButton("show_lr_on_map", "🗺 Show on Map",
-                                                class = "btn btn-primary btn-block"),
-
-                                    br(),
                                     downloadButton("dl_lr_solo", "Download LR Enrichment Table",
                                                   class = "btn btn-warning btn-block")
                                   )
@@ -1417,8 +1416,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                    conditionalPanel(
                                      condition = "output.clustering_done",
                                      plotOutput("cluster_umap", height = "300px"),
-                                     downloadButton("dl_cluster_umap", "⬇ UMAP figure (PDF)",
-                                                    class = "btn btn-outline-secondary btn-sm"),
+                                     downloadButton("dl_cluster_umap", "Download UMAP Figure (PDF)",
+                                                    class = "btn btn-info btn-block"),
                                      br(),
                                       downloadButton("dl_cluster", "Download Cluster Assignments",
                                                     class = "btn btn-warning btn-block")
@@ -1590,8 +1589,9 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                       condition = "input.compare_type2 == 'cellsig'",
                                       selectInput("compare_cellsig2", "Cell Type:", choices = character(0))
                                     ),                                                                                                  
-                                   selectInput("compare_spots_selection", "Use Spots:",
-                                               choices = c("All Spots" = "all", "Group 1" = "group1", "Group 2" = "group2")),
+                                   selectizeInput("compare_spots_selection", "Use spots from:",
+                                                  choices = c("All spots" = "__all__"), selected = "__all__",
+                                                  options = list(placeholder = "All spots, an ROI, or a group")),
                                    selectInput("stat_test", "Test:", choices = c("Wilcoxon" = "wilcox", "t-test" = "ttest")),
                                    # selectInput("cor_method", "Correlation:", choices = c("Spearman" = "spearman", "Pearson" = "pearson")),
                                    actionButton("plot_compare", "Compare", class = "btn btn-info btn-block"),
@@ -3140,11 +3140,6 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       ))  
 
 
-    # ── Update pair selector ────────────────────────────────────────────────
-    observeEvent(lr_solo_results(), {
-      req(lr_solo_results())
-      updateSelectInput(session, "lr_pair_viz", choices = lr_solo_results()$LR_Pair)
-    })
 
     # ── Show an LR pair on the main map (shared by the button and row-click) ──
     plot_lr_pair <- function(pair) {
@@ -3167,21 +3162,13 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       invisible(NULL)
     }
 
-    # Dropdown + "Show on Map" button (kept as a fallback).
-    observeEvent(input$show_lr_on_map, {
-      req(lr_solo_score_matrix(), input$lr_pair_viz)
-      plot_lr_pair(input$lr_pair_viz)
-    })
-
     # Reviewer 1, item 5: clicking a row in the LR table drives the spatial plot
-    # directly, so the table and the map stay in sync.
+    # directly (this replaces the separate dropdown + "Show on Map" button).
     observeEvent(input$lr_simple_table_rows_selected, {
       req(lr_solo_results(), lr_solo_score_matrix())
       row <- input$lr_simple_table_rows_selected
       if (length(row) == 0) return()
-      pair <- lr_solo_results()$LR_Pair[row]
-      updateSelectInput(session, "lr_pair_viz", selected = pair)
-      plot_lr_pair(pair)
+      plot_lr_pair(lr_solo_results()$LR_Pair[row])
     })
 
     # ── Download ────────────────────────────────────────────────────────────
@@ -4181,11 +4168,14 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
       r  <- rois()
       nm <- names(r)
+      # Optional focus: show only one ROI (default "__all__" shows every ROI).
+      focus <- input$roi_show_filter
+      show_i <- if (is.null(focus) || identical(focus, "__all__")) seq_along(nm) else which(nm == focus)
 
-      # ROI member dots ("Show Groups on Map") — one colored layer per named ROI,
+      # ROI member dots ("Show ROIs on Map") — one colored layer per named ROI,
       # so every saved region is visible in its own color (Reviewer 1, item 1).
       if (isTRUE(input$show_groups) && length(nm) > 0) {
-        for (i in seq_along(nm)) {
+        for (i in show_i) {
           spots <- r[[nm[i]]]$spots
           if (length(spots) == 0) next
           idx <- which(spots_sf$spot_id %in% spots)
@@ -4206,7 +4196,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       # ROI boundary contours ("Show ROI contours") — every saved ROI, high-contrast,
       # re-applied on every redraw so they persist (Reviewer 1, item 3).
       if (isTRUE(input$show_roi_contours) && length(nm) > 0) {
-        for (i in seq_along(nm)) {
+        for (i in show_i) {
           proxy <- add_roi_contour(proxy, r[[nm[i]]]$rings)
         }
       }
@@ -4755,6 +4745,13 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                            selected = isolate(input$group_member_rois))
     })
 
+    # Keep the map "focus one ROI" selector in sync with available ROI names.
+    observe({
+      updateSelectizeInput(session, "roi_show_filter",
+                           choices = c("All ROIs" = "__all__", roi_names()),
+                           selected = isolate(input$roi_show_filter))
+    })
+
     # Create a named group from the selected ROIs.
     observeEvent(input$create_group_btn, {
       members <- input$group_member_rois
@@ -4816,6 +4813,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       input$show_groups
       input$show_roi_contours
       rois()                   # any change to any named ROI
+      input$roi_show_filter    # focus on one ROI vs all
       groups()                 # any change to group membership
       input$transparent_groups
       draw_group_overlay()
@@ -5409,6 +5407,13 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     })
 
     # Feature comparison
+    # Keep the feature-comparison region picker in sync with ROIs/Groups.
+    observe({
+      updateSelectizeInput(session, "compare_spots_selection",
+                           choices = c("All spots" = "__all__", region_choices()),
+                           selected = isolate(input$compare_spots_selection))
+    })
+
     observeEvent(input$plot_compare, {
       # Get feature 1
       if (input$compare_type1 == "gene") {
@@ -5456,31 +5461,22 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         }
       }
 
-      # Use spots based on selection
-      if (input$compare_spots_selection == "group1") {
-        sel_spots <- group1_spots()
-        if (length(sel_spots) == 0) {
-          showNotification("No spots in Group 1! Please select spots for Group 1 first.",
-                           type = "warning", duration = 5)
-          return()
-        }
-      } else if (input$compare_spots_selection == "group2") {
-        sel_spots <- group2_spots()
-        if (length(sel_spots) == 0) {
-          showNotification("No spots in Group 2! Please select spots for Group 2 first.",
-                           type = "warning", duration = 5)
-          return()
-        }
-      } else {
-        # Use all spots
+      # Use spots from All spots / an ROI / a group.
+      cmp_key <- input$compare_spots_selection
+      if (is.null(cmp_key) || identical(cmp_key, "__all__")) {
         sel_spots <- spots_sf$spot_id
+        sel_label <- "all spots"
+      } else {
+        sel_spots <- region_spots(cmp_key)
+        sel_label <- region_label(cmp_key)
+        if (length(sel_spots) == 0) {
+          showNotification(paste0("'", sel_label, "' has no spots — pick a non-empty ROI/group."),
+                           type = "warning", duration = 5)
+          return()
+        }
       }
 
-      showNotification(paste("Using", length(sel_spots), "spots from",
-                             switch(input$compare_spots_selection,
-                                    "all" = "all spots",
-                                    "group1" = "Group 1",
-                                    "group2" = "Group 2")),
+      showNotification(paste("Using", length(sel_spots), "spots from", sel_label),
                        type = "message", duration = 3)
 
       tryCatch({
@@ -5637,7 +5633,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         attr(plot_data, "cor_method") <- input$cor_method
         attr(plot_data, "stat_test") <- input$stat_test
         attr(plot_data, "n_spots") <- length(valid_spots)
-        attr(plot_data, "comparison_mode") <- input$compare_spots_selection
+        attr(plot_data, "comparison_mode") <- sel_label
 
         compare_data(plot_data)
 
