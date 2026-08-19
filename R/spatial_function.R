@@ -849,13 +849,14 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                    uiOutput("group_chips")
                                  )
                         ),
-                        tags$div(style = "display: flex; flex-direction: column; gap: 6px; min-width:170px;",
-                          checkboxInput("show_groups", "Show ROIs on Map", value = FALSE),
-                          # Optionally focus on a single ROI (default shows all).
+                        tags$div(style = "display: flex; flex-direction: column; gap: 6px; min-width:180px;",
+                          # Focus selector sits ABOVE the checkbox; includes ROIs AND groups.
                           div(style = "font-size:12px;",
-                              selectizeInput("roi_show_filter", NULL, choices = c("All ROIs" = "__all__"),
+                              selectizeInput("roi_show_filter", "Show on map:",
+                                             choices = c("All ROIs" = "__all__"),
                                              selected = "__all__",
                                              options = list(dropdownParent = "body"), width = "100%")),
+                          checkboxInput("show_groups", "Show ROIs on Map", value = FALSE),
                           checkboxInput("transparent_groups", "Transparent ROI Display", value = FALSE),
                           # Reviewer 1, item 3: high-contrast outline of each saved ROI so the
                           # boundary stays visible even over bright/high expression. Fixed
@@ -4168,9 +4169,18 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
       r  <- rois()
       nm <- names(r)
-      # Optional focus: show only one ROI (default "__all__" shows every ROI).
+      # Optional focus: show all ROIs, one ROI, or the ROIs of one group.
       focus <- input$roi_show_filter
-      show_i <- if (is.null(focus) || identical(focus, "__all__")) seq_along(nm) else which(nm == focus)
+      show_i <- if (is.null(focus) || identical(focus, "__all__")) {
+        seq_along(nm)
+      } else if (startsWith(focus, "roi:")) {
+        which(nm == sub("^roi:", "", focus))
+      } else if (startsWith(focus, "grp:")) {
+        members <- groups()[[sub("^grp:", "", focus)]]$members
+        which(nm %in% members)
+      } else {
+        seq_along(nm)
+      }
 
       # ROI member dots ("Show ROIs on Map") — one colored layer per named ROI,
       # so every saved region is visible in its own color (Reviewer 1, item 1).
@@ -4745,10 +4755,10 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                            selected = isolate(input$group_member_rois))
     })
 
-    # Keep the map "focus one ROI" selector in sync with available ROI names.
+    # Keep the map focus selector in sync — offer All, any ROI, or any group.
     observe({
       updateSelectizeInput(session, "roi_show_filter",
-                           choices = c("All ROIs" = "__all__", roi_names()),
+                           choices = c("All ROIs" = "__all__", region_choices()),
                            selected = isolate(input$roi_show_filter))
     })
 
