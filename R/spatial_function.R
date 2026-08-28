@@ -2356,6 +2356,11 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
           removeNotification(id = "platform_warning")
         }
 
+        nrm <- normalisation_warning(new_seurat)
+        if (!is.null(nrm))
+          showNotification(nrm, type = "warning", duration = NULL, id = "norm_warning")
+        else removeNotification(id = "norm_warning")
+
         apply_loaded_seurat(new_seurat)
 
       }, error = function(e) {
@@ -4236,6 +4241,27 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
     })
 
     # Color functions
+    # Seurat computes log2FC as log2(mean(expm1(data)) + 1) — it assumes the data
+    # layer is log-normalised and un-logs it. Handed raw counts, expm1() overflows
+    # and fold changes come out in the hundreds. Log-normalised values top out
+    # around 8; counts run to the thousands. Returns NULL when the layer is fine.
+    normalisation_warning <- function(obj, assay = NULL) {
+      if (is.null(obj)) return(NULL)
+      a <- if (is.null(assay)) DefaultAssay(obj) else assay
+      if (!a %in% names(obj@assays)) return(NULL)
+      d <- tryCatch(GetAssayData(obj, assay = a, layer = "data"),
+                    error = function(e) tryCatch(GetAssayData(obj, assay = a, slot = "data"),
+                                                 error = function(e2) NULL))
+      if (is.null(d) || !length(d)) return(NULL)
+      mx <- suppressWarnings(max(d, na.rm = TRUE))
+      if (!is.finite(mx) || mx <= 50) return(NULL)
+      paste0("The '", a, "' assay looks like raw counts, not log-normalised values ",
+             "(largest value ", format(round(mx), big.mark = ","), "; normalised data is ",
+             "usually under 10). Differential expression assumes log-normalised input and ",
+             "will report meaningless fold changes on counts. Run NormalizeData() ",
+             "(or SCTransform()) on this object before analysing it.")
+    }
+
     get_color_palette <- function(scheme, n = 100) {
       # Guard the NULL/unknown cases: `if (NULL == "greyred")` raises "argument
       # is of length zero" and aborts the whole reactive flush, and falling off
@@ -5299,6 +5325,14 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         if (!vs_rest && length(g2) == 0) {
           showNotification("Side B is empty — pick a non-empty ROI/group, or 'Rest of tissue'.", type = "error"); return()
         }
+
+        # temp_seurat is a subset of seurat_obj and inherits its default assay,
+        # so this is the layer FindMarkers will actually read.
+        nrm <- normalisation_warning(seurat_obj, DefaultAssay(seurat_obj))
+        if (!is.null(nrm))
+          showNotification(paste0("Fold changes from this run are not reliable. ", nrm),
+                           type = "error", duration = NULL, id = "norm_warning_deg")
+        else removeNotification(id = "norm_warning_deg")
 
         showNotification("Running DEG analysis...", type = "message", duration = NULL, id = "deg_running")
 
