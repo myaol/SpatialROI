@@ -1,4 +1,4 @@
-# SpatialROI
+# SpatialROI <img src="man/figures/logo_spatialroi.png" align="right" height="130" />
 
 SpatialROI is designed to facilitate the ROI-specific exploration, visualization, and analysis of spatial transcriptomics data.
 
