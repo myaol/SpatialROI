@@ -2,14 +2,12 @@
 
 SpatialROI is designed to facilitate the ROI-specific exploration, visualization, and analysis of spatial transcriptomics data.
 
-**SpatialROI** is an interactive R package with a browser-based interface that enables spatial visualization and analysis directly from processed Seurat objects. Users can interactively select regions of interest (ROI), visualize gene expression patterns, and perform downstream analyses such as cell-type signature scoring, clustering, and differential expression analysis. In addition to the GUI, SpatialROI also provides a set of modular functions for scripted workflows, enabling customized analyses. Usage examples for these functions are provided in the [Function Workflow Vignette](vignettes_functions.Rmd).
+**SpatialROI** is an interactive R package with a browser-based interface that enables spatial visualization and analysis directly from processed Seurat objects or SpaceRanger output. Users can interactively select regions of interest (ROI), visualize gene expression patterns, and perform downstream analyses such as cell-type signature scoring, clustering, and differential expression analysis. In addition to the GUI, SpatialROI also provides a set of modular functions for scripted workflows, enabling customized analyses. Usage examples for these functions are provided in the [Function Workflow Vignette](vignettes_functions.Rmd).
 
 SpatialROI can be accessed via a public demo hosted by the University of Pittsburgh: [https://shiny.crc.pitt.edu/spatial_api/](https://shiny.crc.pitt.edu/spatial_api/).
 
-**Hosted-use note:** The public instance is intended for demonstration. Uploaded
-objects are isolated to the current Shiny session and released when that session
-ends; they are not intentionally retained for later users. For unpublished,
-patient-derived, large, or multi-section data, use a local installation.
+**Hosted-use note:** The public instance is intended for demonstration. For
+unpublished, patient-derived, large, or multi-section data, use a local installation.
 
 ---
 
@@ -20,14 +18,9 @@ patient-derived, large, or multi-section data, use a local installation.
 if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
 BiocManager::install(c("Seurat", "GSVA"))
 
-# SpatialROI, plus spacexr (pinned commit) and presto — resolved automatically
+# Installs SpatialROI along with optional dependencies (spacexr, presto)
 devtools::install_github("myaol/SpatialROI", dependencies = TRUE)
 ```
-
-`dependencies = TRUE` is what pulls `spacexr` and `presto`; both are optional
-extras declared in `Suggests`, and the exact spacexr commit that RCTD is
-validated against is pinned in `DESCRIPTION`. Without them the app still runs —
-cell-type deconvolution and the faster Wilcoxon test are simply unavailable.
 
 ---
 
@@ -50,7 +43,10 @@ Seurat_object <- UpdateSeuratObject(Seurat_object)
 run_spatial_selector(Seurat_object, sample_name = "MyExperiment", show_image = TRUE)
 ```
 
-Or upload through the app interface in the Visualization section using the 📤 **Upload Data** panel.
+Or upload through the app interface in the Visualization section using the 📤 **Upload Data**
+panel, which accepts either a Seurat `.rds` or a raw 10x Visium SpaceRanger output directory
+(filtered feature-barcode `.h5` plus the accompanying `spatial/` folder); SpaceRanger input is
+quality-filtered and log-normalised on load.
 
 **Requirements:** Seurat object with spatial coordinates, raw or normalized expression data, and H&E image.
 
@@ -60,13 +56,10 @@ Or upload through the app interface in the Visualization section using the 📤 
   must retain a Visium spatial image and tissue coordinates. Raw input must be a
   SpaceRanger output bundle containing the filtered feature-barcode matrix and
   `spatial/` files.
-- Xenium, CosMx, MERSCOPE, Slide-seq, and Visium HD bin objects are not currently
-  validated by the interactive workflow merely because they can be represented in
-  Seurat.
 - The local Shiny request limit is **500 MB**. A hosted reverse proxy may impose a
   lower limit and return HTTP 413 before the request reaches SpatialROI. Use local
   analysis for large objects.
-- RDS files expand in memory. The 22-MB example requires approximately 300 MB after
+- RDS files expand in memory. The 33-MB example requires approximately 300 MB after
   loading; memory requirements increase with spots, assays, and image size.
 
 ### Bundled example dataset
@@ -122,7 +115,7 @@ This function supports multiple ROI selections and returns a vector of spot IDs,
 
 ## Reference Datasets
 
-Curated RCTD reference datasets for LUAD/LUSC, RCC, breast cancer, HCC, OSCC, and mouse brain are hosted on Zenodo:
+Curated RCTD reference datasets for LUAD/LUSC, RCC, breast cancer, HCC, OSCC, and mouse brain are hosted on Zenodo (the colorectal cancer reference ships with the package itself):
 
 DOI: https://doi.org/10.5281/zenodo.20554051
 

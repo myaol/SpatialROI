@@ -2336,6 +2336,26 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
           stop("No spatial images found in the uploaded Seurat object")
         }
 
+        # SpatialROI is validated for 10x Visium only. Imaging-based and
+        # single-cell-resolved platforms can load into Seurat without error, so
+        # say plainly that the workflow has not been validated for them rather
+        # than letting the object through silently.
+        img_cls <- vapply(new_seurat@images, function(x) class(x)[1], character(1))
+        visium  <- grepl("^Visium|^SlideSeq$", img_cls)
+        if (!any(visium)) {
+          showNotification(
+            paste0("This object's spatial image is of type ",
+                   paste(unique(img_cls), collapse = ", "),
+                   ", not 10x Visium. SpatialROI is designed and validated for ",
+                   "10x Genomics Visium; imaging-based platforms such as Xenium, ",
+                   "CosMx and MERSCOPE, and Visium HD bin objects, are not ",
+                   "validated here. The data has been loaded, but interpret every ",
+                   "result with that in mind."),
+            type = "warning", duration = NULL, id = "platform_warning")
+        } else {
+          removeNotification(id = "platform_warning")
+        }
+
         apply_loaded_seurat(new_seurat)
 
       }, error = function(e) {
