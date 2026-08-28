@@ -15,27 +15,19 @@ patient-derived, large, or multi-section data, use a local installation.
 
 ## Installation
 
-If you haven’t installed the required Bioconductor packages (Seurat, GSVA), run the following first:
-
 ```r
-if (!requireNamespace("BiocManager", quietly = TRUE)) {
-  install.packages("BiocManager")
-}
+# Bioconductor packages (Seurat, GSVA)
+if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
 BiocManager::install(c("Seurat", "GSVA"))
+
+# SpatialROI, plus spacexr (pinned commit) and presto — resolved automatically
+devtools::install_github("myaol/SpatialROI", dependencies = TRUE)
 ```
 
-You can then install SpatialROI directly from GitHub:
-
-```r
-# install.packages(c("remotes", "devtools"))
-# RCTD is validated against this exact spacexr commit.
-remotes::install_github(
-  "dmcable/spacexr@698d5b09e6f70d75d7a5284cf90f8ba4adcb7205",
-  upgrade = "never"
-)
-remotes::install_github("immunogenomics/presto", upgrade = "never")
-devtools::install_github("myaol/SpatialROI")
-```
+`dependencies = TRUE` is what pulls `spacexr` and `presto`; both are optional
+extras declared in `Suggests`, and the exact spacexr commit that RCTD is
+validated against is pinned in `DESCRIPTION`. Without them the app still runs —
+cell-type deconvolution and the faster Wilcoxon test are simply unavailable.
 
 ---
 
