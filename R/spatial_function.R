@@ -1,3 +1,31 @@
+# ── Data-file resolution ──────────────────────────────────────────────────────
+# Works in both deployments: as an installed package (system.file finds the
+# files) and as a plain sourced script on Shiny Server, where there is no
+# package and the data sits in an extdata/ folder beside the script.
+.sr_script_dir <- function() {
+  for (i in seq_len(sys.nframe())) {
+    of <- sys.frame(i)$ofile
+    if (!is.null(of) && nzchar(of)) return(dirname(normalizePath(of, mustWork = FALSE)))
+  }
+  ca <- commandArgs(trailingOnly = FALSE)
+  fa <- regmatches(ca, regexpr("(?<=^--file=).+", ca, perl = TRUE))
+  if (length(fa) > 0 && nzchar(fa[1])) return(dirname(normalizePath(fa[1], mustWork = FALSE)))
+  normalizePath(getwd(), mustWork = FALSE)
+}
+.sr_extdata <- function(...) {
+  p <- system.file("extdata", ..., package = "SpatialROI")
+  if (nzchar(p) && file.exists(p)) return(p)
+  for (base in c(getOption("SpatialROI.extdata", ""), .sr_script_dir(),
+                 file.path(getwd(), "inst"), getwd())) {
+    if (!nzchar(base)) next
+    cand <- file.path(base, "extdata", ...)
+    if (file.exists(cand)) return(cand)
+    cand2 <- file.path(base, ...)
+    if (file.exists(cand2)) return(cand2)
+  }
+  ""
+}
+
 #' Run the SpatialROI Spatial Selector
 #'
 #' @description
@@ -64,7 +92,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
   # Handle demo data
   if (is.character(seurat_input) && seurat_input == "demo") {
-    demo_file <- system.file("extdata", "example_visium.rds", package = "SpatialROI")  # ← Changed here
+    demo_file <- .sr_extdata("example_visium.rds")
 
     if (demo_file == "" || !file.exists(demo_file)) {
       stop("Demo data not found. Please ensure the package is installed correctly.\n",
@@ -1941,9 +1969,9 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
     lr_db_path <- reactive({
       species <- if (is.null(input$lr_species) || input$lr_species == "") "human" else input$lr_species
       if (species == "mouse") {
-        system.file("extdata", "lr_network_combined_mouse.tsv", package = "SpatialROI")
+        .sr_extdata("lr_network_combined_mouse.tsv")
       } else {
-        system.file("extdata", "lr_network_combined_human.tsv", package = "SpatialROI")
+        .sr_extdata("lr_network_combined_human.tsv")
       }
     })
 
@@ -2620,7 +2648,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
       Sys.sleep(0.3)
 
       tryCatch({
-        example_path <- system.file("extdata", "example_visium.rds", package = "SpatialROI")
+        example_path <- .sr_extdata("example_visium.rds")
         if (example_path == "" || !file.exists(example_path)) {
           # source / dev fallback when the package isn't installed
           example_path <- file.path("inst", "extdata", "example_visium.rds")
@@ -2681,7 +2709,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
     builtin_refs <- list(
       crc = {
         # Works when installed as a package
-        pkg_path <- system.file("extdata", "CRC_reference_RCTD.rds", package = "SpatialROI")
+        pkg_path <- .sr_extdata("CRC_reference_RCTD.rds")
         if (nchar(pkg_path) > 0 && file.exists(pkg_path)) {
           pkg_path
         } else {
@@ -6530,7 +6558,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
     # Bundled ROI-versus-rest tables so the module can be tried without
     # first drawing and exporting three of your own.
     observeEvent(input$ms_load_examples, {
-      dir <- system.file("extdata", "example_deg_tables", package = "SpatialROI")
+      dir <- .sr_extdata("example_deg_tables")
       if (dir == "" || !dir.exists(dir)) dir <- file.path("inst", "extdata", "example_deg_tables")
       fs <- sort(list.files(dir, pattern = "\\.csv$", full.names = TRUE))
       if (length(fs) == 0) {

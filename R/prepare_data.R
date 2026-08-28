@@ -1006,7 +1006,7 @@ prepare_seurat_data <- function(seurat_input, sample_name = "sample", show_image
   # dropdown is always populated regardless of the server's msigdbr version
   # (Reviewer 3, item 4). Falls back to msigdbr only if the bundled file is absent.
   if (is.null(.hallmark_cache$human) || is.null(.hallmark_cache$mouse)) {
-    hm_file <- system.file("extdata", "hallmark_gene_sets.rds", package = "SpatialROI")
+    hm_file <- .sr_extdata("hallmark_gene_sets.rds")
     if (hm_file == "" || !file.exists(hm_file)) {
       hm_file <- file.path("inst", "extdata", "hallmark_gene_sets.rds")  # source/dev fallback
     }
