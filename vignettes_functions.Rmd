@@ -1,9 +1,9 @@
 ---
-title: "SpatialScope Function-Level Analysis Guide"
+title: "SpatialROI Function-Level Analysis Guide"
 author: "Mengyao Lu"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{SpatialScope Function-Level Guide}
+  %\VignetteIndexEntry{SpatialROI Function-Level Guide}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -18,19 +18,19 @@ knitr::opts_chunk$set(
 
 # Introduction
 
-SpatialScope is an interactive platform for region-specific analysis and visualization of spatial transcriptomics data. While the full GUI can be launched using `run_SpatialScope()`, the package also provides a set of individual functions that enable reproducible, programmatic workflows.
+SpatialROI is an interactive platform for region-specific analysis and visualization of spatial transcriptomics data. While the full GUI can be launched using `run_SpatialROI()`, the package also provides a set of individual functions that enable reproducible, programmatic workflows.
 
 This vignette demonstrates how these core functions can be combined to build customized spatial analysis pipelines.
 
 ## Installation
 ```{r eval=FALSE}
 # Install from GitHub
-devtools::install_github("myaol/SpatialScope")
+devtools::install_github("myaol/SpatialROI")
 ```
 
 ## Load Library
 ```{r eval=FALSE}
-library(SpatialScopeDev)
+library(SpatialROI)
 ```
 
 # Region of Interest (ROI) Selection
@@ -43,7 +43,7 @@ The `draw_ROI()` function enables interactive selection of spatial regions:
 Seurat_object <- readRDS("path/to/your_seurat.rds")
 
 # Or load the built-in demo dataset
-demo_path <- system.file("extdata", "example_visium.rds", package = "SpatialScopeDev")
+demo_path <- system.file("extdata", "example_visium.rds", package = "SpatialROI")
 Seurat_object <- readRDS(demo_path)
 
 # Draw ROI and return selected spot IDs
@@ -60,7 +60,7 @@ subset_Seurat_object <- subset(Seurat_object, cells = selected_spots)
 
 # Interactive Viewers
 
-SpatialScope provides several interactive viewers that can be launched with single function calls:
+SpatialROI provides several interactive viewers that can be launched with single function calls:
 
 ## Gene Viewer
 
@@ -225,9 +225,9 @@ plot_feature_violin_comparison(
 
 # Complete Analysis Workflow Example
 
-Here's a complete analysis combining multiple SpatialScope functions:
+Here's a complete analysis combining multiple SpatialROI functions:
 ```{r eval=FALSE}
-library(SpatialScopeDev)
+library(SpatialROI)
 
 # Step 1: Load data
 Seurat_object <- readRDS("path/to/Seurat_object.rds")

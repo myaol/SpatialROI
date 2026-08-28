@@ -1,7 +1,4 @@
-future::plan("sequential")
-options(future.globals.maxSize = 2000 * 1024^2)
-
-#' Run the SpatialScope Spatial Selector
+#' Run the SpatialROI Spatial Selector
 #'
 #' @description
 #' Launch an interactive ROI selection and analysis tool for spatial transcriptomics data.
@@ -53,9 +50,21 @@ options(future.globals.maxSize = 2000 * 1024^2)
 #'
 run_spatial_selector <- function(seurat_input, sample_name = "sample", show_image = TRUE) {
 
+  # Set the application-level upload limit before the UI/server are created.
+  # Hosted reverse proxies can impose a lower request limit independently.
+  options(shiny.maxRequestSize = 500 * 1024^2)
+
+  # The UI labels use emoji; under a C locale they render as literal <U+1F52C>.
+  # Force a UTF-8 ctype so the app looks the same on a bare server as it does locally.
+  if (!grepl("UTF-8", Sys.getlocale("LC_CTYPE"), fixed = TRUE)) {
+    for (loc in c("en_US.UTF-8", "C.UTF-8", "UTF-8")) {
+      if (suppressWarnings(Sys.setlocale("LC_CTYPE", loc)) != "") break
+    }
+  }
+
   # Handle demo data
   if (is.character(seurat_input) && seurat_input == "demo") {
-    demo_file <- system.file("extdata", "example_visium.rds", package = "SpatialScope")  # ← Changed here
+    demo_file <- system.file("extdata", "example_visium.rds", package = "SpatialROI")  # ← Changed here
 
     if (demo_file == "" || !file.exists(demo_file)) {
       stop("Demo data not found. Please ensure the package is installed correctly.\n",
@@ -153,10 +162,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
       he_image_cropped <- he_image_data[crop_y_min:crop_y_max, crop_x_min:crop_x_max, ]
       temp_file <- tempfile(fileext = ".png")
-      png(temp_file, width = dim(he_image_cropped)[2], height = dim(he_image_cropped)[1])
-      par(mar = c(0, 0, 0, 0))
-      plot(as.raster(he_image_cropped), axes = FALSE)
-      dev.off()
+      png::writePNG(he_image_cropped, target = temp_file)
       he_image_base64 <- paste0("data:image/png;base64,", base64enc::base64encode(temp_file))
       unlink(temp_file)
 
@@ -468,6 +474,17 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         #map { height: 100% !important; }
         .leaflet-container { background: #f5f5f5; }
 
+        /* Floating ROI/Group panel: keep its footprint small so it covers as
+           little of the H&E as possible (user feedback on the revised layout). */
+        .roi-dock { gap: 10px !important; }
+        .roi-dock .form-group { margin-bottom: 0 !important; }
+        .roi-dock .checkbox { margin: 3px 0 !important; min-height: 0 !important; }
+        .roi-dock .checkbox label { padding-top: 0 !important; font-size: 12px; line-height: 1.25; }
+        .roi-dock .form-control { height: 30px; padding: 3px 8px; font-size: 12px; }
+        .roi-dock .btn { padding: 4px 8px; font-size: 12px; }
+        .roi-dock .selectize-input { min-height: 30px; padding: 3px 8px; font-size: 12px; }
+        .roi-dock control-label, .roi-dock label { margin-bottom: 2px; font-size: 12px; }
+
         /* Map controls */
         .map-controls {
           position: absolute;
@@ -498,8 +515,27 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           transition: all 0.3s;
         }
         .leaflet-bottom.leaflet-right .leaflet-control {
-          margin-bottom: 70px !important;
+          margin-bottom: 126px !important;   /* clears both stacked buttons */
         }
+        /* Stacked directly ABOVE Clear Selection, same right edge. Sitting
+           beside it on the bottom rail covered the ROI-contour control. */
+        .save-view-btn {
+          position: absolute;
+          bottom: 76px;
+          right: 20px;
+          z-index: 1100;
+          background: #2c7fb8;
+          color: white;
+          border: none;
+          padding: 12px 20px;
+          border-radius: 8px;
+          cursor: pointer;
+          font-weight: bold;
+          font-size: 14px;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+          transition: all 0.3s;
+        }
+        .save-view-btn:hover { background: #1f5f8b; color: white; }
 
         .clear-selection-btn:hover {
           background: #c0392b;
@@ -694,7 +730,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     # Initial Loading Screen (before landing page)
     tags$div(class = "initial-loading", id = "initial_loading",
              div(class = "loading-spinner-large"),
-             div(class = "loading-title", "🔬 SpatialScope"),
+             div(class = "loading-title", "🔬 SpatialROI"),
              div(class = "loading-message", "Loading spatial data..."),
              div(style = "margin-top: 20px; font-size: 16px; opacity: 0.8;",
                  "Please wait while we prepare your analysis")
@@ -702,7 +738,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
     # Landing Page
     tags$div(class = "landing-container", id = "landing_page",
-             div(class = "landing-title", "🔬 SpatialScope"),
+             div(class = "landing-title", "🔬 SpatialROI"),
              div(class = "landing-subtitle", "Interactive Spatial Transcriptomics Analysis Platform"),
              div(class = "landing-description",
                  "Explore, analyze, and visualize spatial gene expression data with powerful interactive tools"
@@ -735,13 +771,13 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                  ),
                  div(class = "feature-card",
                      div(class = "feature-icon", "⚖️"),
-                     div(class = "feature-title", "Comparisons"),
-                     div(class = "feature-desc", "Compare features & groups")
+                     div(class = "feature-title", "Within-Tissue Comparison"),
+                     div(class = "feature-desc", "Compare features & groups within one tissue")
                  ),
                  div(class = "feature-card",
                      div(class = "feature-icon", "📚"),
-                     div(class = "feature-title", "Statistics"),
-                     div(class = "feature-desc", "Perform statistical tests")
+                     div(class = "feature-title", "Multi-Sample"),
+                     div(class = "feature-desc", "Compare ROI DEGs across tissues")
                  ),
                  div(class = "feature-card",
                      div(class = "feature-icon", "💾"),
@@ -780,6 +816,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                       actionButton("btn_deg", HTML("<div style='font-size:24px;'>📈</div><div class='sidebar-button-label'>DEGs</div>"),
                                    class = "sidebar-button"),
                       actionButton("btn_compare", HTML("<div style='font-size:24px;'>⚖️</div><div class='sidebar-button-label'>Compare</div>"),
+                                   class = "sidebar-button"),
+                      actionButton("btn_multisample", HTML("<div style='font-size:24px;'>🧩</div><div class='sidebar-button-label'>Multi-Sample</div>"),
                                    class = "sidebar-button")
              ),
 
@@ -791,6 +829,10 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                       tags$button(class = "clear-selection-btn",
                                   onclick = "Shiny.setInputValue('clear_selection_click', Math.random());",
                                   "🗑️ Clear Selection"),
+
+                      # Save the whole H&E view exactly as it is on screen.
+                      downloadButton("dl_map_view", "🖼️ Save view (PDF)",
+                                     class = "save-view-btn"),
 
                       # Map controls (top right)
                       tags$div(class = "map-controls",
@@ -818,13 +860,15 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
                       # Group buttons (bottom center) - MODIFIED: Added download buttons
                       tags$div(
-                        style = "position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; display: flex; gap: 15px; align-items: center;",
+                        class = "roi-dock",
+                        style = "position: absolute; bottom: 8px; left: 10px; right: 200px; z-index: 1000; display: flex; align-items: flex-end; flex-wrap: wrap-reverse; justify-content: center; gap: 8px;",
                         # ── Two-tier ROI / Group panel (Reviewer 1, item 1) ────────────
                         # ① Draw a region → name it → Save region (named ROI).
                         # ② Optionally group several named ROIs for group-vs-group.
-                        tags$div(style = "background:white; padding:10px 14px; border-radius:10px; box-shadow:0 3px 14px rgba(0,0,0,0.25); display:flex; flex-direction:row; gap:16px; align-items:flex-start;",
+tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-shadow:0 3px 14px rgba(0,0,0,0.25); display:flex; flex-direction:column; gap:6px; flex:0 0 auto;",
+                          tags$div(style = "display:flex; flex-direction:row; gap:12px; align-items:flex-start;",
                                  # Column ① — draw & save a named region
-                                 tags$div(style = "display:flex; flex-direction:column; gap:6px; width:270px;",
+                                 tags$div(style = "display:flex; flex-direction:column; gap:5px; flex:0 0 240px; width:240px;",
                                    tags$div(style = "font-weight:700; font-size:13px; color:#2c3e50;", "① Draw a region"),
                                    div(style = "width:100%;",
                                        textInput("roi_name", NULL, value = "ROI 1",
@@ -835,7 +879,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                  ),
                                  tags$div(style = "width:1px; align-self:stretch; background:#e5e7eb;"),
                                  # Column ② — group ROIs for comparison
-                                 tags$div(style = "display:flex; flex-direction:column; gap:6px; width:270px;",
+                                 tags$div(style = "display:flex; flex-direction:column; gap:5px; flex:0 0 240px; width:240px;",
                                    tags$div(style = "font-weight:700; font-size:13px; color:#2c3e50;", "② Group ROIs"),
                                    div(style = "width:100%;",
                                        selectizeInput("group_member_rois", NULL, choices = NULL, multiple = TRUE,
@@ -848,8 +892,16 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                                     class = "btn btn-success", style = "white-space:nowrap; font-weight:700;")),
                                    uiOutput("group_chips")
                                  )
+                          ),
+                          # Save the region picked under "Show on map" as a Seurat subset.
+                          tags$div(style = "display:flex; gap:8px; align-items:center; border-top:1px solid #eceff3; padding-top:6px;",
+                            downloadButton("dl_region_seurat", "⬇ Save region (.rds)",
+                                           class = "btn btn-success btn-sm", style = "white-space:nowrap;"),
+                            tags$span(style = "font-size:11px; color:#7f8c8d; line-height:1.3;",
+                                      textOutput("export_region_note", inline = TRUE))
+                          )
                         ),
-                        tags$div(style = "display: flex; flex-direction: column; gap: 6px; min-width:180px;",
+                        tags$div(style = "display: flex; flex-direction: column; gap: 6px; width:180px; flex:0 0 180px;",
                           # Focus selector sits ABOVE the checkbox; includes ROIs AND groups.
                           div(style = "font-size:12px;",
                               selectizeInput("roi_show_filter", "Show on map:",
@@ -879,13 +931,11 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                   # Hero
 
                                   tags$div(style = "background: linear-gradient(135deg, #0072B5 0%, #E18727 100%); color: white; padding: 28px 24px; border-radius: 12px; margin-bottom: 24px;",
-                                    tags$h1(style = "margin: 0 0 10px 0; font-size: 32px; font-weight: bold;", "🔬 SpatialScope"),
+                                    tags$h1(style = "margin: 0 0 10px 0; font-size: 32px; font-weight: bold;", "🔬 SpatialROI"),
                                     tags$p(style = "margin: 0 0 8px 0; font-size: 17px; line-height: 1.7; opacity: 0.97;",
-                                      "An interactive platform for spatial transcriptomics analysis. ",
-                                      tags$strong("Draw freehand regions of interest"), 
-                                      " directly on your tissue image, compare spatial domains, and perform statistical analyses — with no coding required."),
+                                      "Draw freehand regions of interest (ROIs) on a tissue image, compare regions, and analyze spatial gene expression — no coding required."),
                                     tags$p(style = "margin: 0; font-size: 15px; opacity: 0.85;",
-                                      "✅ Accepts: Seurat object (.rds); 10x Visium SpaceRanger raw output")
+                                      "✅ Accepts: Seurat object (.rds); 10x Genomics Visium SpaceRanger raw output")
                                   ),
 
                                   # Quick Start - vertical rows
@@ -906,17 +956,18 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                         tags$div(style = "background: #0072B5; color: white; min-width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: bold;", "2"),
                                         tags$div(
                                           tags$div(style = "font-weight: bold; color: #2c3e50; font-size: 16px; margin-bottom: 3px;", "Select Regions of Interest"),
-                                          tags$div(style = "font-size: 14px; color: #555; line-height: 1.5;", "Use the ✏️ freehand drawing tool on the map to draw around any tissue regions you want to analyze, then assign the selected spots to Group 1 or Group 2 for comparison.")
+                                          tags$div(style = "font-size: 14px; color: #555; line-height: 1.5;", "Use the ✏️ freehand tool to draw a tissue region, then save it as a named ROI. Combine several ROIs into a named group when they should be analyzed together.")
                                         )
                                       ),
 
                                       tags$div(style = "display: flex; align-items: flex-start; gap: 18px;",
                                         tags$div(style = "background: #0072B5; color: white; min-width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: bold;", "3"),
                                         tags$div(
-                                          tags$div(style = "font-weight: bold; color: #2c3e50; font-size: 16px; margin-bottom: 3px;", "Save Groups for Comparison"),
-                                          tags$div(style = "font-size: 14px; color: #555; line-height: 1.5;", 
-                                            " Selected groups remain available throughout the session. Use ", 
-                                            tags$strong("⬇ Download"), " beneath each button to export the corresponding spots as a new Seurat object for reuse or downstream analysis.")
+                                          tags$div(style = "font-weight: bold; color: #2c3e50; font-size: 16px; margin-bottom: 3px;", "Group ROIs for Comparison"),
+                                          tags$div(style = "font-size: 14px; color: #555; line-height: 1.5;",
+                                            " Saved ROIs and groups remain available throughout the session, and any of them can be picked on either side of a comparison. Use ",
+                                            tags$strong("Save region (.rds)"), " beneath the map to export the selected region as a Seurat object, or the ",
+                                            tags$strong("DEG"), " panel to export the threshold-filtered differential-expression table for descriptive Multi-Sample comparison.")
                                         )
                                       ),
 
@@ -934,11 +985,11 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                   tags$div(style = "background: white; border-radius: 12px; padding: 24px 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 20px;",
                                     tags$h2(style = "color: #0072B5; font-size: 22px; margin: 0 0 15px 0; padding-bottom: 8px; border-bottom: 2px solid #E18727;", "💡 Tips & Best Practices"),
                                     tags$ul(style = "font-size: 14px; line-height: 1.9; color: #333; padding-left: 20px; margin: 0;",
-                                      tags$li(tags$strong("Selection:"), " Draw a region of interest using the freehand tool, then assign it to Group 1 or Group 2 for downstream comparison."),
-                                      tags$li(tags$strong("Show Groups:"), " Enable “Show Groups on Map” to visualize saved group selections overlaid on the tissue image."),
+                                      tags$li(tags$strong("Selection:"), " Draw a region of interest using the freehand tool and save it as a named ROI; group ROIs together to analyze them as one group."),
+                                      tags$li(tags$strong("Map display:"), " Use “Show on map” to choose the displayed ROI/group, “Show ROIs on Map” to add its spots, “Transparent ROI Display” to reveal the tissue below, and “Show ROI contours” for high-contrast outlines."),
                                       tags$li(tags$strong("Species:"), " Select the correct species (Human/Mouse) before using built-in gene signatures or pathway gene sets."),
-                                      tags$li(tags$strong("Clustering:"), " Start with the default resolution (0.8) and increase it for finer subgroup identification"),
-                                      tags$li(tags$strong("Export:"), " Export selected ROIs as Seurat subsets for reuse in SpatialScope or downstream analysis in external tools.")
+                                      tags$li(tags$strong("Clustering:"), " Start with the default resolution (0.8) and increase it for finer subgroup identification."),
+                                      tags$li(tags$strong("Export:"), " Export selected ROIs as Seurat subsets for reuse in SpatialROI or downstream analysis in external tools.")
                                     )
                                   ),
 
@@ -990,6 +1041,12 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                                     class = "btn btn-success btn-block"),
                                         tags$p(style = "font-size: 12px; color: #7f8c8d; margin-top: 5px;",
                                               "⚠️ Loading new data will replace current analysis")
+                                      ),
+                                      tags$div(
+                                        style = "font-size:11px; color:#607080; line-height:1.45; margin-top:8px; padding:8px; background:#f4f7f9; border-radius:6px;",
+                                        tags$div(tags$b("Example:"), " human colorectal cancer Visium; 1,253 spots and 17,529 genes."),
+                                        tags$div(tags$b("Uploads:"), " Local installs accept files up to 500 MB. ",
+                                                 "The hosted server may allow less. For large files, please run SpatialROI locally.")
                                       )
                                     ),
 
@@ -1054,24 +1111,39 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                                              "Rainbow" = "rainbow")),
                                      plotOutput("color_legend", height = "150px")
                                    )
-
                                ),
+
+                              # ── Map display reset ─────────────────────────────────────────────────
+                              div(class = "control-section",
+                                  h4("Map Display"),
+                                  actionButton("clear_map_overlay", "Clear Map Overlay",
+                                               class = "btn btn-info btn-block"),
+                                  tags$p(style = "font-size: 11px; color: #7f8c8d; margin-top: 6px;",
+                                        "Clears the gene, gene-set or cluster colouring and returns the map to the plain tissue view. ",
+                                        tags$b("Saved ROIs and groups are not affected."))
+                              ),
 
                               # ── NEW: Independent LR Score Section (NO RCTD needed) ────────────────
                               div(class = "control-section",
                                   h4("🔗 L-R Colocalization Score"),
                                   tags$p(style = "font-size: 12px; color: #7f8c8d; margin-bottom: 10px;",
-                                        "Compute ligand-receptor geometric mean scores in selected region."),
+                                        "Compute spatially smoothed ligand-receptor geometric-mean scores in a selected region."),
 
                                   selectInput("lr_species", "Species:",
                                               choices = c("Human" = "human", "Mouse" = "mouse"),
                                               selected = "human"),
 
                                   radioButtons("lr_entity_type", "Analyze by:",
-                                               choices = c("Groups" = "Groups", "ROIs" = "ROIs"),
+                                               choices = c("All spots" = "All", "Groups" = "Groups", "ROIs" = "ROIs"),
                                                selected = "Groups", inline = TRUE),
-                                  selectizeInput("lr_solo_target", "Region:", choices = NULL,
-                                                 options = list(placeholder = "select an ROI or group")),
+                                  conditionalPanel(
+                                    condition = "input.lr_entity_type != 'All'",
+                                    selectizeInput("lr_solo_target", "Region:", choices = NULL,
+                                                   options = list(placeholder = "select an ROI or group"))),
+                                  conditionalPanel(
+                                    condition = "input.lr_entity_type == 'All'",
+                                    tags$p(style = "font-size:11px; color:#7f8c8d; margin:2px 0 8px 0;",
+                                           "Scores every tissue spot. Smoothing uses the whole-section neighbour graph.")),
 
                                   checkboxGroupInput("lr_solo_db_filter", "Include databases:",
                                                     choices  = c("CellChat"              = "cellchat",
@@ -1085,10 +1157,10 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                     tags$summary(style = "cursor:pointer; font-weight:600; color:#2c3e50;",
                                                  "⚙ Advanced settings"),
                                     tags$div(style = "padding:8px 4px;",
-                                      numericInput("lr_bandwidth_mult", "Kernel bandwidth × (Gaussian σ multiplier):",
+                                      numericInput("lr_bandwidth_mult", "Gaussian bandwidth multiplier:",
                                                    value = 1.0, min = 0.25, max = 4, step = 0.25),
                                       tags$p(style = "font-size:11px; color:#7f8c8d; margin-top:4px;",
-                                             "σ adapts to local spot spacing (median distance to the 12 nearest spots); this multiplies it. Larger = smoother, wider neighborhood.")
+                                             "σ = median distance to the 12 nearest spots × this value; 0.5–2 is a practical range. It changes the per-spot map; the ranked pair table shifts little, because smoothing preserves each pair\u2019s spatial average.")
                                     )
                                   ),
 
@@ -1106,7 +1178,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                       "👉 Click a row to show that pair on the map (grey → red by ligand × receptor)."),
                                     DT::dataTableOutput("lr_simple_table"),
                                     hr(),
-                                    downloadButton("dl_lr_solo", "Download LR Enrichment Table",
+                                    downloadButton("dl_lr_solo", "Download LR Score Table",
                                                   class = "btn btn-warning btn-block")
                                   )
                               ),
@@ -1120,7 +1192,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                 div(class = "control-section",
                                     h4("🔬 Cell Type Deconvolution"),
                                     tags$p(style = "font-size: 12px; color: #7f8c8d; margin-bottom: 10px;",
-                                          "Estimate cell type proportions in ROI using RCTD."),
+                                          "Cell-type mixtures per spot (RCTD full mode). Fitting all spots is more reliable than ROI-only fits, which are exploratory."),
 
                                     # ── Reference source selector ──────────────────────────────────────────
                                     h5("Reference Data"),
@@ -1142,8 +1214,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                                   )),
                                       
                                       tags$p(style = "font-size: 11px; color: #7f8c8d; margin-top: 4px;",
-                                            "Additional references available at our ", 
-                                            tags$a("GitHub Releases", href = "https://github.com/YOUR_REPO/releases", target = "_blank"), "."),
+                                            "Built for human colorectal tissue. Other tissues or species need a matched reference — more at our ", 
+                                            tags$a("GitHub", href = "https://github.com/myaol/SpatialScope", target = "_blank"), "."),
 
                                       actionButton("load_builtin_ref", "Load Built-in Reference",
                                                   class = "btn btn-info btn-block",
@@ -1162,8 +1234,10 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                         condition = "input.show_ref_upload % 2 == 1",
                                         fileInput("upload_reference", "Select scRNA-seq Reference (.rds)",
                                                   accept = c(".rds")),
+                                        selectInput("ref_celltype_col", "Cell-type annotation:",
+                                                    choices = c("Active identities" = "idents")),
                                         tags$p(style = "font-size: 12px; color: #7f8c8d; margin-top: 5px;",
-                                              "⚠️ Loading a new reference will reset deconvolution results.")
+                                              "Needs a Seurat object with raw RNA counts and cell-type labels, ≥25 cells per type. Loading a reference resets results.")
                                       )
                                     ),
 
@@ -1173,12 +1247,20 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
                                     verbatimTextOutput("ref_status"),
 
+                                    # ── Regions to deconvolve (unified ROI/group picker) ───────────────────
+                                    tags$hr(),
+                                    selectizeInput("deconv_regions", "Regions to deconvolve:",
+                                                   choices = NULL, multiple = TRUE,
+                                                   options = list(placeholder = "Pick ROIs, groups, or All spots")),
+                                    tags$p(style = "font-size: 11px; color: #7f8c8d; margin: -6px 0 8px 0;",
+                                           textOutput("deconv_region_note", inline = TRUE)),
+
                                     # ── Run button ─────────────────────────────────────────────────────────
                                     actionButton("run_deconv", "🔬 Estimate Cell Composition",
                                                 class = "btn btn-primary btn-block",
                                                 style = "margin-top: 10px;"),
                                     tags$p(style = "font-size: 11px; color: #e67e22; margin-top: 5px;",
-                                          "💡 Save spots to Group 1 or Group 2 on the map first."),
+                                          "Each selected region is fitted separately (~1–4 min)."),
 
                                     # ── Results ────────────────────────────────────────────────────────────
                                     conditionalPanel(
@@ -1186,8 +1268,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                       tags$hr(),
                                       h5("Cell Type Proportions"),
                                       verbatimTextOutput("deconv_gene_overlap_msg"),
-                                      selectInput("deconv_group", "Show results for:",
-                                                  choices = c("Group 1" = "group1", "Group 2" = "group2", "All Spots" = "all")),
+                                      selectInput("deconv_group", "Show results for:", choices = NULL),
                                       plotOutput("deconv_barplot", height = "280px"),
                                       div(style = "max-height: 300px; overflow-y: auto;",
                                           tableOutput("deconv_table")),
@@ -1323,7 +1404,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                                choices = c("Human" = "human", "Mouse" = "mouse"),
                                                selected = "human"),
                                    tags$p(style = "font-size: 12px; color: #7f8c8d; margin-top: 5px;",
-                                          "💡 Gene symbols will be updated based on species")
+                                          "Gene symbols and built-in signatures follow the selected species.")
                                ),
                                div(class = "control-section",
                                    h4("Select Signature"),
@@ -1336,7 +1417,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                                   class = "btn btn-info btn-block")
                                    ),
                                    tags$p(style = "font-size: 12px; color: #7f8c8d; margin-top: 10px;",
-                                          "💡 Select a pre-defined signature or enter custom genes below")
+                                          "Select a predefined signature or enter custom genes below.")
                                ),
 
                               div(class = "control-section",
@@ -1350,7 +1431,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                                 class = "btn btn-warning btn-block")
                                   ),
                                   tags$p(style = "font-size: 11px; color: #7f8c8d; margin-top: 5px;",
-                                        "💡 Loads into Gene Input below — same scoring and visualization applies")
+                                        "Loads genes into Gene Input; the selected scoring method is then applied.")
                               ),
 
                                div(class = "control-section",
@@ -1362,13 +1443,11 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                div(class = "control-section",
                                    h4("Parameters"),
                                    selectInput("gene_set_method", "Method:",
-                                               choices = c("Mean" = "mean",
-                                                           "AddModuleScore" = "addmodulescore",
+                                               choices = c("Mean expression" = "mean",
+                                                           "AddModuleScore (Seurat)" = "addmodulescore",
                                                            "GSVA (rank-based)" = "gsva")),
                                    tags$p(style = "font-size: 11px; color: #7f8c8d; margin-top: -8px; margin-bottom: 10px;",
-                                          HTML("💡 <b>Mean</b>: Fastest, simple average<br>
-                                                <b>AddModuleScore</b>: Fast, with control features<br>
-                                                <b>GSVA</b>: Rank-based enrichment (may take 10-30s)")),
+                                          HTML("<b>Mean:</b> simple average expression across genes.<br><b>AddModuleScore:</b> average corrected against control gene sets.<br><b>GSVA:</b> rank-based enrichment score, robust to dropout and sequencing depth. Takes about a minute per gene set, longer on larger sections.")),
                                    textInput("gene_set_name", "Name:", value = "GeneSet1"),
                                    selectInput("geneset_color_scheme", "Color Scheme:",
                                                choices = c("Grey to Red" = "greyred",
@@ -1399,9 +1478,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                                   choices = c("All spots" = "__all__"),
                                                   selected = "__all__",
                                                   options = list(placeholder = "All spots, an ROI, or a group")),
-                                   textOutput("cluster_spot_count"),
-                                   tags$p(style = "font-size: 12px; color: #7f8c8d; margin-top: 5px;",
-                                          "💡 Tip: draw & save ROIs (or make a group) to cluster within a region")
+                                   textOutput("cluster_spot_count")
                                ),
                                div(class = "control-section",
                                    h4("Parameters"),
@@ -1430,24 +1507,6 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                       tags$div(class = "control-content", id = "content_deg",
                                div(class = "panel-header", "📈 Differential Expression"),
                                div(class = "control-section",
-                                   h4("Group Information"),
-                                   div(style = "display: flex; align-items: center; margin: 10px 0;",
-                                       div(style = "width: 20px; height: 20px; background: #E41A1C; border-radius: 50%; margin-right: 10px;"),
-                                       div(textOutput("group1_info", inline = TRUE))
-                                   ),
-                                   div(style = "display: flex; align-items: center; margin: 10px 0;",
-                                       div(style = "width: 20px; height: 20px; background: #377EB8; border-radius: 50%; margin-right: 10px;"),
-                                       div(textOutput("group2_info", inline = TRUE))
-                                   ),
-                                   # Removed the redundant "Show on Map" checkbox (Reviewer 1, item 7):
-                                   # it shared the same inputId ("show_groups") as the central
-                                   # "Show Groups on Map" control, which made the two boxes drift out
-                                   # of visual sync. Group highlighting is now driven by that single
-                                   # central checkbox; this panel keeps the Group 1 / Group 2 readouts.
-                                   tags$p(style = "font-size: 12px; color: #7f8c8d; margin-top: 10px;",
-                                          "💡 Tip: Toggle \"Show Groups on Map\" in the visualization panel to highlight the saved groups. Use the group buttons at the bottom of the map to save selections and download spot IDs.")
-                               ),
-                               div(class = "control-section",
                                    h4("Analysis"),
                                    # Compare ROI-vs-ROI or Group-vs-Group (Reviewer 1, item 1).
                                    # Side A / Side B can each be any ROI or Group (cross-type allowed).
@@ -1455,8 +1514,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                                   options = list(placeholder = "select an ROI or group")),
                                    selectizeInput("deg_side_b", "Side B:", choices = NULL,
                                                   options = list(placeholder = "ROI/group, or Rest of tissue")),
-                                   tags$p(style = "font-size:11px; color:#7f8c8d; margin:2px 0;",
-                                          "Positive log2FC = higher in Side A."),
+                                   tags$p(style = "font-size:11px; color:#7f8c8d; margin:-8px 0 6px 0;",
+                                          "Prefer non-overlapping regions. Shared spots stay in both sides."),
                                    # ⚙ Advanced settings (collapsed) — DE test + thresholds (Reviewer 2, item 3).
                                    tags$details(style = "margin:6px 0;",
                                      tags$summary(style = "cursor:pointer; font-weight:600; color:#2c3e50;",
@@ -1478,22 +1537,26 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                conditionalPanel(
                                  condition = "output.deg_results_available",
                                  div(class = "control-section",
-                                     h4("Top DEGs"),
-                                     tags$p(style = "font-size:12px; color:#2c3e50; font-weight:600;",
-                                            textOutput("deg_direction", inline = TRUE)),
+                                     h4(textOutput("deg_direction", inline = TRUE)),
                                       div(style = "max-height: 400px; overflow-y: auto;",
                                           tableOutput("deg_table")),
                                   plotOutput("deg_volcano", height = "450px"),
+                                  tags$p(style = "font-size:11px; color:#7f8c8d; margin-top:4px;",
+                                         "The volcano and Moran's I views use genes passing the selected FDR, prevalence, and |log2FC| thresholds."),
                                   downloadButton("dl_deg_volcano", "Download Volcano Figure (PDF)",
                                                  class = "btn btn-warning btn-block"),
                                   plotOutput("deg_moran_volcano", height = "450px"),
+                                  downloadButton("dl_deg_moran", "Download Moran's I Figure (PDF)",
+                                                 class = "btn btn-warning btn-block"),
 
                                       tags$p(style = "font-size:12px; color:#7f8c8d; margin-top: 6px;",
                                         "💡 Tip: ", tags$strong("p_adj"), " reflects differential expression; ",
                                         tags$strong("Moran's I"), " (with adjusted p-values) quantifies spatial autocorrelation."
-                                      ),                                         
+                                     ),                                         
                                      br(),
-                                     downloadButton("dl_deg", "Download DEG Results", class = "btn btn-warning btn-block")
+                                     downloadButton("dl_deg", "Download DEG table (.csv)", class = "btn btn-warning btn-block"),
+                                     tags$p(style = "font-size:11px; color:#7f8c8d; margin-top:5px;",
+                                            "Uses your Advanced Settings. Can be uploaded to Multi-Sample.")
                                  )
                                )
                       ),
@@ -1531,6 +1594,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                                   options = list(placeholder = "select an ROI or group")),
                                    selectizeInput("violin_side_b", "Side B:", choices = NULL,
                                                   options = list(placeholder = "ROI/group, or Rest of tissue")),
+                                   tags$p(style = "font-size:11px; color:#7f8c8d; margin:-8px 0 6px 0;",
+                                          "Prefer non-overlapping regions. Shared spots stay in both sides."),
                                    selectInput("violin_stat_test", "Test:",
                                                choices = c("Wilcoxon" = "wilcox", "t-test" = "ttest"),
                                                selected = "wilcox"),
@@ -1539,7 +1604,11 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                      condition = "output.violin_available",
                                      plotOutput("violin_plot", height = "300px"),
                                       br(),
-                                        downloadButton("dl_compare_plot_group", "Download Comparison Plot",
+                                        # R3 #5: the violin figure had no download button of its own.
+                                        # The id used to be dl_compare_plot_group, whose handler saved
+                                        # a plot slot the Feature-vs-Feature panel also wrote, so this
+                                        # button could hand back a scatter plot under a violin filename.
+                                        downloadButton("dl_violin_plot", "Download Comparison Plot",
                                                       class = "btn btn-warning btn-block"))
                                ),
                                div(class = "control-section",
@@ -1595,7 +1664,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                                   options = list(placeholder = "All spots, an ROI, or a group")),
                                    selectInput("stat_test", "Test:", choices = c("Wilcoxon" = "wilcox", "t-test" = "ttest")),
                                    # selectInput("cor_method", "Correlation:", choices = c("Spearman" = "spearman", "Pearson" = "pearson")),
-                                   actionButton("plot_compare", "Compare", class = "btn btn-info btn-block"),
+                                   actionButton("plot_compare", "Generate Plot", class = "btn btn-info btn-block"),
                                    conditionalPanel(
                                      condition = "output.compare_available",
                                      plotOutput("compare_plot", height = "400px"),
@@ -1604,6 +1673,100 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                                     class = "btn btn-warning btn-block")
                                    )
                                )
+                      ),
+
+                      # ── Multi-Sample comparison (Reviewer 1, item 1) ──────────────────
+                      # Reads complete ROI-vs-rest signatures exported from this
+                      # app. Repeated ROIs are allowed for descriptive comparison.
+                      tags$div(class = "control-content full-screen-content", id = "content_multisample",
+                        tags$div(style = "width:100%; height:100vh; overflow-y:auto; background:#f5f7fa; padding: 0 8px 40px 8px;",
+                          tags$div(style = "max-width:1150px; margin:0 auto; padding:20px 16px;",
+
+                            tags$div(style = "background:linear-gradient(135deg,#0072B5 0%,#E18727 100%); color:white; padding:22px 24px; border-radius:12px; margin-bottom:20px;",
+                              tags$h1(style = "margin:0 0 8px 0; font-size:26px; font-weight:bold;", "🧩 Multi-Sample"),
+                              tags$p(style = "margin:0; font-size:15px; line-height:1.6; opacity:.97;",
+                                "Compare ROI-versus-rest DEG results across tissues without pooling expression matrices. Tables may come from SpatialROI or another compatible DEG workflow.")
+                            ),
+
+                            # ── 1. Load signatures ────────────────────────────────────────
+                            div(class = "control-section",
+                              h4("1 · Upload DEG tables"),
+                              tags$p(style = "font-size:13px; color:#7f8c8d;",
+                                "Upload DEG tables from SpatialROI or elsewhere. A gene column and a log-fold-change column are required."),
+                              fileInput("ms_upload", NULL, multiple = TRUE, accept = c(".csv", ".txt"), width = "100%"),
+                              div(style = "display:flex; gap:10px; align-items:center; margin-bottom:10px;",
+                                  actionButton("ms_load_examples", "Load example tables",
+                                               class = "btn btn-primary btn-sm"),
+                                  actionButton("ms_clear", "Clear all", class = "btn btn-default btn-sm"),
+                                  tags$span(style = "font-size:13px; color:#7f8c8d;", textOutput("ms_status", inline = TRUE))),
+                              tags$p(style = "font-size:11px; color:#7f8c8d; margin:-4px 0 8px 0;",
+                                "\u201cLoad example tables\u201d loads three bundled ROI-versus-rest tables from independent sections \u2014 ",
+                                tags$b("01_CRC_TLS_ROI_vs_rest.csv"), ", ",
+                                tags$b("02_HCC_liver_TLS_ROI_vs_rest.csv"), " and ",
+                                tags$b("03_P2N_liver_TLS_ROI_vs_rest.csv"), " \u2014 for demonstration."),
+                              div(style = "max-height:240px; overflow-y:auto;", tableOutput("ms_table")),
+                              tags$p(style = "font-size:11px; color:#7f8c8d; margin-top:8px;",
+                                "At least two ROI tables are required. Adding more tables typically reduces the number of genes shared across all of them. Multiple ROIs from one patient are allowed, but they are not independent biological replicates."),
+                            ),
+
+                            conditionalPanel(
+                              condition = "output.ms_ready",
+
+                              # ── 1. Are these regions similar? ───────────────────────────
+                              div(class = "control-section",
+                                h4("2 · Compare ROI similarity"),
+                                tags$p(style = "font-size:13px; color:#7f8c8d;",
+                                  "Shared DEGs, direction agreement and effect-size correlation for each pair, over genes reported in both tables. Pairs sharing fewer than 10 genes are omitted."),
+                                uiOutput("ms_overlap_note"),
+                                div(style = "max-height:300px; overflow:auto;", tableOutput("ms_concordance")),
+                                downloadButton("ms_dl_concordance", "Download Pair Table (.csv)", class = "btn btn-warning")
+                              ),
+
+                              # ── 2. What biology is shared? ──────────────────────────────
+                              div(class = "control-section",
+                                h4("3 · Find shared and variable genes"),
+                                tags$p(style = "font-size:13px; color:#7f8c8d;",
+                                  "Genes reported in every uploaded table: mean, median and range of log2FC, and how many regions agree on direction. Each table is used as supplied, at the thresholds chosen when it was exported."),
+                                div(style = "display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end;",
+                                  div(style = "width:200px;",
+                                      numericInput("ms_n_heat", "Genes in heatmap:", value = 30, min = 5, max = 80, step = 5))),
+                                plotOutput("ms_gene_heatmap", height = "640px"),
+                                downloadButton("ms_dl_gene_fig", "Download Figure (PDF)", class = "btn btn-warning"),
+                                tags$hr(),
+                                div(style = "max-height:440px; overflow:auto;", tableOutput("ms_consensus")),
+                                downloadButton("ms_dl_consensus", "Download Shared-Pattern Table (.csv)", class = "btn btn-warning")
+                              ),
+
+                              # ── 3. What pathways are shared? ────────────────────────────
+                              div(class = "control-section",
+                                h4("4 · Pathway comparison"),
+                                tags$p(style = "font-size:13px; color:#7f8c8d;",
+                                  "Hallmark over-representation against a fixed library background. Pathways found in the most ROIs appear first; exploratory."),
+                                div(style = "width:210px;",
+                                    numericInput("ms_n_path", "Pathways to show:", value = 25, min = 5, max = 50, step = 5)),
+                                plotOutput("ms_pathway_heatmap", height = "660px"),
+                                div(style = "display:flex; gap:10px;",
+                                    downloadButton("ms_dl_pathway_fig", "Download Figure (PDF)", class = "btn btn-warning"),
+                                    downloadButton("ms_dl_pathway_tbl", "Download Enrichment (.csv)", class = "btn btn-warning"))
+                              ),
+
+                              # ── Optional: discordant genes ──────────────────────────────
+                              # Largely another view of the effect-size heatmap, so it is
+                              # collapsed rather than presented as a headline analysis.
+                              div(class = "control-section",
+                                tags$details(
+                                  tags$summary(style = "cursor:pointer; font-weight:600; color:#2c3e50; font-size:15px;",
+                                               "Inspect discordant genes"),
+                                  tags$div(style = "padding-top:10px;",
+                                    tags$p(style = "font-size:13px; color:#7f8c8d;",
+                                      "Strong in one region but opposite in another \u2014 sample-specific biology, or a region that is not comparable."),
+                                    div(style = "max-height:340px; overflow:auto;", tableOutput("ms_disagree")),
+                                    downloadButton("ms_dl_disagree", "Download Table (.csv)", class = "btn btn-warning"))
+                                )
+                              )
+                            )
+                          )
+                        )
                       )
              )
     ),
@@ -1650,6 +1813,17 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     spots_sf        <- spots_sf
     he_image_base64 <- he_image_base64
     he_image_bounds <- he_image_bounds
+
+    # Drop this session's copies as soon as the tab closes. Without this the
+    # objects stay reachable until R happens to collect, so several users
+    # visiting in turn can hold several sections' worth of memory at once.
+    session$onSessionEnded(function() {
+      seurat_obj      <<- NULL
+      spots_sf        <<- NULL
+      he_image_base64 <<- NULL
+      he_image_bounds <<- NULL
+      invisible(gc(verbose = FALSE, full = TRUE))
+    })
     all_genes       <- all_genes
     all_metadata    <- all_metadata
     # ──────────────────────────────────────────────────────────────────────────
@@ -1675,10 +1849,6 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
     # Increase file upload size limit (default is 5MB, set to 500MB)
     options(shiny.maxRequestSize = 500*1024^2)  # 500MB in bytes
-    options(future.globals.maxSize = 8000 * 1024^2) 
-    # ── Fix for Seurat FindMarkers future globals error ──
-
-
     # Hide initial loading screen after app is ready
     observe({
       # Wait a moment for everything to load
@@ -1691,22 +1861,15 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     }) %>%
       bindEvent(once = TRUE, {TRUE})
 
-    # Global error handler - suppress termination errors when user stops the app
-    options(shiny.error = function() {
-      # Silently catch errors during app termination
-      # This prevents the "stopifnot(length(class2) == 1L)" error from showing
-      return(invisible(NULL))
-    })
-
-    # Suppress warnings during session to prevent termination messages
-    options(warn = -1)
-
     # Reactive values
     current_sample_name <- reactiveVal(sample_name)  # Make sample_name reactive
     drawn_feats <- reactiveVal(list())
     selected_spots <- reactiveVal(character(0))
     current_values <- reactiveVal(NULL)
     is_categorical <- reactiveVal(FALSE)  # Track if current data is categorical
+    # What the map is currently coloured by, for the exported view's caption and
+    # legend title. Set wherever current_values() is set.
+    current_feature_label <- reactiveVal(NULL)
     category_labels <- reactiveVal(NULL)
     # ── N-group model (Reviewer 1, item 1) ────────────────────────────────────
     # Single source of truth: a named list of groups, each holding its member
@@ -1739,23 +1902,17 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       unique(unlist(lapply(gg$members, function(m) if (!is.null(r[[m]])) r[[m]]$spots else NULL),
                     use.names = FALSE))
     }
-    group_rings_of <- function(gname) {
-      gg <- groups()[[gname]]
-      if (is.null(gg) || length(gg$members) == 0) return(list())
-      r <- rois(); out <- list()
-      for (m in gg$members) if (!is.null(r[[m]])) out <- c(out, r[[m]]$rings)
-      out
+    reset_groups <- function() {
+      rois(list()); groups(list()); roi_counter(0)
+      # Also clear the visible name field. Zeroing the counter alone left the
+      # box holding the previous dataset's value, so the first region drawn on
+      # newly loaded data was saved as "ROI 2".
+      updateTextInput(session, "roi_name", value = "ROI 1")
     }
-    reset_groups <- function() { rois(list()); groups(list()); roi_counter(0) }
 
-    # Legacy accessors: map the first two GROUPS to the old group1/group2 slots so
-    # existing DEG / plotting / download code keeps working until A3 wires N groups.
-    .grp_spots <- function(i) { nm <- names(groups()); if (length(nm) >= i) group_spots_of(nm[i]) else character(0) }
-    .grp_rings <- function(i) { nm <- names(groups()); if (length(nm) >= i) group_rings_of(nm[i]) else list() }
-    group1_spots <- reactive(.grp_spots(1))
-    group2_spots <- reactive(.grp_spots(2))
-    group1_roi   <- reactive(.grp_rings(1))
-    group2_roi   <- reactive(.grp_rings(2))
+    # The legacy group1/group2 accessors that bridged the old two-group model are
+    # gone: A3 wired N groups through region_spots() below, and nothing referenced
+    # them any more.
 
     # ── Unified region picker (Reviewer feedback) ─────────────────────────────
     # One choice list covering every ROI and Group, plus a resolver to spot IDs,
@@ -1780,14 +1937,13 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       else key
     }
     cluster_colors_palette <- reactiveVal(NULL) 
-    last_group_plot <- reactiveVal(NULL) 
 
     lr_db_path <- reactive({
       species <- if (is.null(input$lr_species) || input$lr_species == "") "human" else input$lr_species
       if (species == "mouse") {
-        system.file("extdata", "lr_network_combined_mouse.tsv", package = "SpatialScope")
+        system.file("extdata", "lr_network_combined_mouse.tsv", package = "SpatialROI")
       } else {
-        system.file("extdata", "lr_network_combined_human.tsv", package = "SpatialScope")
+        system.file("extdata", "lr_network_combined_human.tsv", package = "SpatialROI")
       }
     })
 
@@ -1795,9 +1951,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     lr_network <- reactive({
       read.table(lr_db_path(), sep = "\t", header = TRUE)
     })    
-    output_group1 <- reactive(.grp_spots(1))  # bridged: first group's combined spots
-    output_group2 <- reactive(.grp_spots(2))  # bridged: second group's combined spots
-    deg_results <- reactiveVal(NULL)
+    deg_results <- reactiveVal(NULL)       # filtered table shown in the DEG panel
     violin_data <- reactiveVal(NULL)
     compare_data <- reactiveVal(NULL)
     gene_set_scores <- reactiveVal(list())
@@ -1808,12 +1962,22 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     # ── Figure downloads (Reviewer 3, item 5) ─────────────────────────────────
     # Each plot output captures its ggplot into one of these so it can be saved.
     deg_volcano_rv  <- reactiveVal(NULL)
+    deg_moran_rv    <- reactiveVal(NULL)
     violin_rv       <- reactiveVal(NULL)
     cluster_umap_rv <- reactiveVal(NULL)
     # Shared publication-quality PDF download handler for a captured ggplot.
-    make_plot_download <- function(rv, stem, w = 8, h = 6) {
+    # Figure names carry the sample and, where the caller supplies it, the
+    # regions or settings behind the plot, so downloads stay identifiable once
+    # several are sitting in one folder.
+    make_plot_download <- function(rv, stem, w = 8, h = 6, detail = NULL) {
       downloadHandler(
-        filename = function() paste0(stem, "_", format(Sys.time(), "%Y%m%d"), ".pdf"),
+        filename = function() {
+          cl <- function(x) gsub("[^A-Za-z0-9_-]+", "_", as.character(x))
+          extra <- if (is.function(detail)) detail() else detail
+          paste0(cl(current_sample_name()), "_", stem,
+                 if (!is.null(extra) && nzchar(extra)) paste0("_", cl(extra)) else "",
+                 "_", format(Sys.time(), "%Y%m%d"), ".pdf")
+        },
         content  = function(file) {
           p <- rv()
           if (is.null(p)) { showNotification("Generate the plot first.", type = "warning"); return() }
@@ -1821,45 +1985,27 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         }
       )
     }
-    output$dl_deg_volcano  <- make_plot_download(deg_volcano_rv,  "DEG_volcano")
-    output$dl_violin_plot  <- make_plot_download(violin_rv,       "violin", w = 6, h = 6)
-    output$dl_cluster_umap <- make_plot_download(cluster_umap_rv, "UMAP_clusters", w = 7, h = 6)
+    output$dl_deg_volcano  <- make_plot_download(deg_volcano_rv, "DEG_volcano",
+      detail = function() paste0(deg_sideA_label(), "_vs_", deg_sideB_label()))
+    output$dl_deg_moran    <- make_plot_download(deg_moran_rv, "Moran_volcano",
+      detail = function() paste0(deg_sideA_label(), "_vs_", deg_sideB_label()))
+    output$dl_cluster_umap <- make_plot_download(cluster_umap_rv, "UMAP_clusters", w = 7, h = 6,
+      detail = function() { r <- cluster_results(); if (is.null(r)) NULL else paste0(r$spot_selection, "_res", r$resolution) })
 
     # Dynamic header title
     output$header_title <- renderText({
-      paste("🔬 SpatialScope -", current_sample_name())
+      paste("🔬 SpatialROI -", current_sample_name())
     })
 
-    # FIXED: Observer to enable/disable download buttons based on group content
-    observe({
-      has_group1 <- length(output_group1()) > 0
-      has_group2 <- length(output_group2()) > 0
-
-      # Enable/disable Group 1 buttons
-      if (has_group1) {
-        shinyjs::enable("dl_group1")
-        shinyjs::enable("dl_seurat_group1")
-      } else {
-        shinyjs::disable("dl_group1")
-        shinyjs::disable("dl_seurat_group1")
-      }
-
-      # Enable/disable Group 2 buttons
-      if (has_group2) {
-        shinyjs::enable("dl_group2")
-        shinyjs::enable("dl_seurat_group2")
-      } else {
-        shinyjs::disable("dl_group2")
-        shinyjs::disable("dl_seurat_group2")
-      }
-    })
-
-    # MODIFIED: Reactive for current signature library based on species
+    # Species-dependent libraries. Compare with identical() rather than ==: the
+    # input is NULL until the first flush, and `NULL == "human"` is logical(0),
+    # which throws "argument is of length zero" inside if(). Human is the UI
+    # default, so it is also the right fallback.
     current_signature_library <- reactive({
-      if (input$species_select == "human") {
-        signature_library_human
-      } else {
+      if (identical(input$species_select, "mouse")) {
         signature_library_mouse
+      } else {
+        signature_library_human
       }
     })
 
@@ -1875,7 +2021,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     updateSelectInput(session, "violin_cellsig",   choices = c("", names(cellmarker_db)))
 
     current_hallmark_library <- reactive({
-      if (input$species_select == "human") hallmark_library_human else hallmark_library_mouse
+      if (identical(input$species_select, "mouse")) hallmark_library_mouse else hallmark_library_human
     })
     # Populate the Hallmark dropdowns after load / on species change. If the
     # library is unexpectedly empty, show an explicit message instead of a blank
@@ -1913,9 +2059,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       # Clear all map layers
       leafletProxy("map") %>%
         clearGroup("drawn") %>%
-        clearGroup("selected") %>%
-        clearGroup("group1_display") %>%
-        clearGroup("group2_display")
+        clearGroup("selected")
 
       # Send clear message to JavaScript
       session$sendCustomMessage("clearFreehandDrawings", list())
@@ -1925,60 +2069,11 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                        type = "message", duration = 5)
     })
 
-    # Initialize when "Start Analysis" is clicked
-    observeEvent(input$start_analysis_clicked, {
-      print("Start Analysis clicked - initializing...")
-
-      # Clear all reactive values immediately
-      drawn_feats(list())
-      selected_spots(character(0))
-      current_values(NULL)
-
-      # Clear all map layers immediately
-      leafletProxy("map") %>%
-        clearGroup("drawn") %>%
-        clearGroup("selected") %>%
-        clearGroup("group1_display") %>%
-        clearGroup("group2_display")
-
-      # Send clear message to JavaScript
-      session$sendCustomMessage("clearFreehandDrawings", list())
-
-      # Wait a moment for map to fully initialize
-      Sys.sleep(0.5)
-
-      # Hide loading overlay
-      session$sendCustomMessage("hideLoading", list())
-
-      print("Analysis started - all selections cleared and initialized")
-      showNotification("Welcome to SpatialScope! Draw a region on the map to begin.",
-                       type = "message", duration = 5)
-    })
-
-    # Initialize when "Start Analysis" is clicked
-    observeEvent(input$start_analysis_clicked, {
-      # Clear all reactive values
-      drawn_feats(list())
-      selected_spots(character(0))
-      current_values(NULL)
-
-      # Small delay to ensure map is loaded
-      Sys.sleep(0.3)
-
-      # Clear all map layers
-      leafletProxy("map") %>%
-        clearGroup("drawn") %>%
-        clearGroup("selected") %>%
-        clearGroup("group1_display") %>%
-        clearGroup("group2_display")
-
-      # Send clear message to JavaScript
-      session$sendCustomMessage("clearFreehandDrawings", list())
-
-      print("Analysis started - all selections cleared and initialized")
-      showNotification("Welcome to SpatialScope! Draw a region on the map to begin.",
-                       type = "message", duration = 5)
-    })
+    # There were two further observeEvent(input$start_analysis_clicked) blocks
+    # here, duplicating each other and the landing handler above. Nothing ever
+    # sets that input — the landing button emits start_analysis_from_landing —
+    # so both were unreachable, and together they held 0.8 s of blocking
+    # Sys.sleep and a second copy of the welcome notification.
 
     # Close panel handler
     observeEvent(input$close_panel, {
@@ -2098,10 +2193,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
             he_image_cropped <- he_image_data[crop_y_min:crop_y_max, crop_x_min:crop_x_max, ]
             temp_file <- tempfile(fileext = ".png")
-            png(temp_file, width = dim(he_image_cropped)[2], height = dim(he_image_cropped)[1])
-            par(mar = c(0, 0, 0, 0))
-            plot(as.raster(he_image_cropped), axes = FALSE)
-            dev.off()
+            png::writePNG(he_image_cropped, target = temp_file)
             he_image_base64 <<- paste0("data:image/png;base64,", base64enc::base64encode(temp_file))
             unlink(temp_file)
 
@@ -2125,17 +2217,43 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           he_image_base64 <<- NULL
         })
 
-        # Clear all selections and results
+        # Clear every result derived from the previous dataset. These are the
+        # memory-heavy ones: the L-R score matrix is spots x ligand-receptor
+        # pairs, the deconvolution results are one spots x cell-type table per
+        # region, and each captured ggplot carries its own copy of the data it
+        # was drawn from. Left in place they would also be silently stale, since
+        # they refer to spot identifiers from the object just replaced.
         drawn_feats(list())
         selected_spots(character(0))
         reset_groups()
         current_values(NULL)
+        is_categorical(FALSE)
+        category_labels(NULL)
+        showing_gene_set(FALSE)
         deg_results(NULL)
+        deg_run_meta(NULL)
         violin_data(NULL)
         compare_data(NULL)
         gene_set_scores(list())
         current_gene_set_score(NULL)
         cluster_results(NULL)
+        cluster_colors_palette(NULL)
+        deconv_results(NULL)
+        deconv_overlap_msg(NULL)
+        deconv_labels(character(0))
+        lr_solo_results(NULL)
+        lr_solo_score_matrix(NULL)
+        lr_solo_status_msg(NULL)
+        deg_volcano_rv(NULL)
+        deg_moran_rv(NULL)
+        violin_rv(NULL)
+        cluster_umap_rv(NULL)
+
+        # The object just replaced is now unreferenced; ask R to hand the pages
+        # back rather than waiting for a collection to happen on its own. A
+        # Visium section is roughly 300 MB once loaded, so on a shared server
+        # this is the difference between one stale copy and several.
+        invisible(gc(verbose = FALSE, full = TRUE))
 
         # Update loading message
         shinyjs::runjs("$('#loading_message').text('Rendering map with new spots...');")
@@ -2150,8 +2268,6 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           clearGroup("spots") %>%
           clearGroup("drawn") %>%
           clearGroup("selected") %>%
-          clearGroup("group1_display") %>%
-          clearGroup("group2_display") %>%
           fitBounds(
             lng1 = x_range[1] - x_buffer, lat1 = y_range[1] - y_buffer,
             lng2 = x_range[2] + x_buffer, lat2 = y_range[2] + y_buffer
@@ -2313,7 +2429,6 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         # ── 4. Load with Seurat ───────────────────────────────────────────────
         new_obj <- Seurat::Load10X_Spatial(data.dir = data_dir, filename = basename(h5_file))
         new_obj <- tryCatch(UpdateSeuratObject(new_obj), error = function(e) new_obj)
-        new_obj <- NormalizeData(new_obj)
 
         new_obj[["percent.mt"]] <- Seurat::PercentageFeatureSet(new_obj, pattern = "^MT-|^mt-")
         new_obj[["percent.rb"]] <- Seurat::PercentageFeatureSet(new_obj, pattern = "^RP[SL]|^Rp[sl]")
@@ -2327,6 +2442,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                                     .md$nCount_Spatial   > nc_thr &
                                     .md$percent.mt        < mt_thr]
         new_obj  <- subset(new_obj, cells = keep_cells)
+        new_obj  <- NormalizeData(new_obj, verbose = FALSE)
         n_after <- ncol(new_obj)
         showNotification(paste0("QC: kept ", n_after, "/", n_before, " spots"),
                         type = "message", duration = 5)
@@ -2387,10 +2503,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
             cat("H&E image dim:", H, "x", W, "\n")
 
             temp_file <- tempfile(fileext = ".png")
-            png(temp_file, width = W, height = H)
-            par(mar = c(0, 0, 0, 0))
-            plot(as.raster(he_image_data), axes = FALSE)
-            dev.off()
+            png::writePNG(he_image_data, target = temp_file)
 
             he_image_base64 <<- paste0(
               "data:image/png;base64,",
@@ -2424,6 +2537,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         reset_groups()
         current_values(NULL)
         deg_results(NULL)
+        deg_run_meta(NULL)
         gene_set_scores(list())
         current_gene_set_score(NULL)
         cluster_results(NULL)
@@ -2437,8 +2551,6 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           clearGroup("spots") %>%
           clearGroup("drawn") %>%
           clearGroup("selected") %>%
-          clearGroup("group1_display") %>%
-          clearGroup("group2_display") %>%
           fitBounds(x_range[1] - x_buf, y_range[1] - y_buf,
                     x_range[2] + x_buf, y_range[2] + y_buf) %>%
           addCircleMarkers(
@@ -2483,7 +2595,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       Sys.sleep(0.3)
 
       tryCatch({
-        example_path <- system.file("extdata", "example_visium.rds", package = "SpatialScope")
+        example_path <- system.file("extdata", "example_visium.rds", package = "SpatialROI")
         if (example_path == "" || !file.exists(example_path)) {
           # source / dev fallback when the package isn't installed
           example_path <- file.path("inst", "extdata", "example_visium.rds")
@@ -2530,9 +2642,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       session$sendCustomMessage("clearFreehandDrawings", list())
       leafletProxy("map") %>%
         clearGroup("drawn") %>%
-        clearGroup("selected") %>%
-        clearGroup("group1_display") %>%
-        clearGroup("group2_display")
+        clearGroup("selected")
       showNotification("Selection and all groups cleared", type = "message", duration = 2)
     })
 
@@ -2546,7 +2656,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     builtin_refs <- list(
       crc = {
         # Works when installed as a package
-        pkg_path <- system.file("extdata", "CRC_reference_RCTD.rds", package = "SpatialScope")
+        pkg_path <- system.file("extdata", "CRC_reference_RCTD.rds", package = "SpatialROI")
         if (nchar(pkg_path) > 0 && file.exists(pkg_path)) {
           pkg_path
         } else {
@@ -2580,8 +2690,9 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       rctd_ref_cache(NULL)   # invalidate cache whenever reference changes
 
       meta_cols <- colnames(ref@meta.data)
-      # updateSelectInput(session, "ref_celltype_col",
-      #                   choices = c("Idents (default)" = "idents", meta_cols))
+      updateSelectInput(session, "ref_celltype_col",
+                        choices = c("Active identities" = "idents", meta_cols),
+                        selected = "idents")
 
       n_cells  <- ncol(ref)
       n_types  <- length(unique(Idents(ref)))
@@ -2669,9 +2780,40 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     # ── Run RCTD ───────────────────────────────────────────────────────────────────
     deconv_results       <- reactiveVal(NULL)
     deconv_overlap_msg   <- reactiveVal(NULL)   # gene overlap info for the UI
+    deconv_labels        <- reactiveVal(character(0))  # region key -> display label
 
     output$deconv_results_available <- reactive({ !is.null(deconv_results()) })
     outputOptions(output, "deconv_results_available", suspendWhenHidden = FALSE)
+
+    # Keep the deconvolution region picker in sync with ROIs/Groups (Reviewer 1, item 1).
+    # Deconvolution used to be hardwired to Group 1 / Group 2; it now takes any region.
+    observe({
+      rc  <- region_choices()
+      cur <- isolate(input$deconv_regions)
+      sel <- if (is.null(cur) || length(cur) == 0) {
+        if (length(rc) > 0) unname(rc) else "__all__"
+      } else cur
+      updateSelectizeInput(session, "deconv_regions",
+                           choices  = c("All spots" = "__all__", rc),
+                           selected = sel)
+    })
+
+    # Show how many spots the current selection covers, before the user commits to a run.
+    output$deconv_region_note <- renderText({
+      keys <- input$deconv_regions
+      if (is.null(keys) || length(keys) == 0) return("⚠️ Pick at least one region.")
+      n <- vapply(keys, function(k) {
+        length(if (identical(k, "__all__")) spots_sf$spot_id else region_spots(k))
+      }, integer(1))
+      empty <- keys[n == 0]
+      msg <- paste0("✓ ", length(keys), " region(s), ", sum(n), " spots total")
+      if (length(empty) > 0) {
+        msg <- paste0(msg, " — ", paste(vapply(empty, region_label, character(1)), collapse = ", "),
+                      " is empty and will be skipped")
+      }
+      msg
+    })
+    outputOptions(output, "deconv_region_note", suspendWhenHidden = FALSE)
 
     observeEvent(input$run_deconv, {
       if (is.null(ref_seurat()) && is.null(rctd_ref_cache())) {
@@ -2679,9 +2821,12 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         return()
       }
 
-      g1 <- group1_spots()
-      g2 <- group2_spots()
-
+      sel_keys <- input$deconv_regions
+      if (is.null(sel_keys) || length(sel_keys) == 0) {
+        showNotification("Pick at least one ROI, group, or 'All spots' to deconvolve.",
+                         type = "error")
+        return()
+      }
 
       if (!requireNamespace("spacexr", quietly = TRUE)) {
         showNotification(
@@ -2725,7 +2870,14 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           if (is.null(ref)) {
             stop("No reference loaded. Please load a built-in or upload a reference first.")
           }
-          cell_types <- Idents(ref)
+          annotation_col <- if (is.null(input$ref_celltype_col)) "idents" else input$ref_celltype_col
+          cell_types <- if (identical(annotation_col, "idents")) {
+            Idents(ref)
+          } else {
+            if (!annotation_col %in% colnames(ref@meta.data))
+              stop("The selected cell-type annotation column is not present in the reference.")
+            stats::setNames(ref@meta.data[[annotation_col]], rownames(ref@meta.data))
+          }
 
           cell_types <- as.factor(cell_types)
 
@@ -2747,7 +2899,18 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
             )
           }
 
-          ref_counts <- Seurat::GetAssayData(ref[, keep_cells], layer = "counts")
+          # RCTD recommends limiting very large reference classes. Use a fixed
+          # seed so the same reference produces the same cached object.
+          set.seed(1)
+          keep_cells <- unlist(lapply(valid_types, function(ct) {
+            ids <- names(cell_types)[cell_types == ct]
+            if (length(ids) > 2000) sample(ids, 2000) else ids
+          }), use.names = FALSE)
+
+          ref_counts <- tryCatch(
+            Seurat::GetAssayData(ref[, keep_cells], layer = "counts"),
+            error = function(e) stop("The uploaded reference must contain an original raw-count layer for RCTD.")
+          )
           ref_counts <- round(ref_counts)
           cell_types <- droplevels(cell_types[keep_cells])
 
@@ -2759,21 +2922,25 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         rctd_ref <- rctd_ref_cache()
 
         # ── Determine spatial assay ────────────────────────────────────────────
-        spatial_assay <- if ("Spatial" %in% names(seurat_obj@assays)) {
-          "Spatial"
-        } else {
-          DefaultAssay(seurat_obj)
+        raw_assays <- intersect(c("Spatial", "RNA"), names(seurat_obj@assays))
+        if (length(raw_assays) == 0) {
+          stop("RCTD requires an original Spatial or RNA raw-count assay. An SCT-only object can display precomputed proportions but should not be used to rerun RCTD.")
         }
+        spatial_assay <- raw_assays[1]
 
         # ── Run per group ──────────────────────────────────────────────────────
         results      <- list()
         overlap_msgs <- c()
+        labels_map   <- character(0)
 
-        for (grp in c("group1", "group2", "all")) {
-          spots <- if (grp == "group1") g1 else if (grp == "group2") g2 else spots_sf$spot_id
-          if (length(spots) == 0) next
+        for (grp in sel_keys) {
+          spots     <- if (identical(grp, "__all__")) spots_sf$spot_id else region_spots(grp)
+          grp_label <- if (identical(grp, "__all__")) "All Spots" else region_label(grp)
 
-          grp_label <- if (grp == "group1") "Group 1" else if (grp == "group2") "Group 2" else "All Spots"
+          if (length(spots) == 0) {
+            overlap_msgs <- c(overlap_msgs, paste0(grp_label, ": skipped — no spots."))
+            next
+          }
 
           if (length(spots) > 800) {
             showNotification(
@@ -2855,7 +3022,12 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
             weights_mat <- as.matrix(weights_mat)
           }
           props <- spacexr::normalize_weights(weights_mat)
-          results[[grp]] <- as.data.frame(as.matrix(props))
+          results[[grp]]    <- as.data.frame(as.matrix(props))
+          labels_map[[grp]] <- grp_label
+        }
+
+        if (length(results) == 0) {
+          stop("None of the selected regions had any spots. Draw and save an ROI first.")
         }
 
         # Warn if gene overlap is low
@@ -2870,7 +3042,13 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         }
 
         deconv_results(results)
+        deconv_labels(labels_map)
         deconv_overlap_msg(paste(overlap_msgs, collapse = "\n"))
+
+        # The results selector lists exactly the regions that were computed.
+        updateSelectInput(session, "deconv_group",
+                          choices  = setNames(names(results), unname(labels_map[names(results)])),
+                          selected = names(results)[1])
 
         removeNotification(id = "rctd_running")
         showNotification("✓ Deconvolution complete!", type = "message")
@@ -2887,6 +3065,12 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       deconv_overlap_msg()
     })
 
+    # Display label for a computed region key (falls back to the key itself).
+    deconv_label_of <- function(key) {
+      lm <- deconv_labels()
+      if (!is.null(key) && length(key) == 1 && key %in% names(lm)) unname(lm[[key]]) else region_label(key)
+    }
+
     # ── Barplot ────────────────────────────────────────────────────────────────────
 
     output$deconv_barplot <- renderPlot({
@@ -2895,7 +3079,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       props <- deconv_results()[[grp]]
       if (is.null(props)) {
         plot.new()
-        text(0.5, 0.5, "No results for this group.", cex = 1.2, col = "grey50")
+        text(0.5, 0.5, "No results for this region.", cex = 1.2, col = "grey50")
         return()
       }
 
@@ -2912,8 +3096,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         geom_bar(stat = "identity", position = "stack") +
         scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
         labs(
-          title = paste("Cell Type Proportions —",
-              switch(grp, "group1" = "Group 1", "group2" = "Group 2", "all" = "All Spots")),              
+          title = paste("Cell Type Proportions —", deconv_label_of(grp)),
+
           x = NULL, y = "Proportion", fill = NULL
         ) +
         theme_minimal(base_size = 11) +
@@ -2941,7 +3125,11 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
     # ── Download ───────────────────────────────────────────────────────────────────
     output$dl_deconv <- downloadHandler(
-      filename = function() paste0("deconvolution_", input$deconv_group, ".csv"),
+      filename = function() {
+        paste0(gsub("[^A-Za-z0-9_-]+", "_", current_sample_name()), "_deconvolution_",
+               gsub("[^A-Za-z0-9_-]+", "_", deconv_label_of(input$deconv_group)), "_",
+               format(Sys.time(), "%Y%m%d"), ".csv")
+      },
       content  = function(file) {
         props <- deconv_results()[[input$deconv_group]]
         req(props)
@@ -2964,6 +3152,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
     # Populate the LR region picker from ROIs or Groups (Reviewer 1, item 1).
     observe({
+      if (identical(input$lr_entity_type, "All")) return(invisible(NULL))
       choices <- if (identical(input$lr_entity_type, "ROIs")) roi_names() else group_names()
       updateSelectizeInput(session, "lr_solo_target", choices = choices,
                            selected = isolate(input$lr_solo_target))
@@ -2972,25 +3161,43 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     observeEvent(input$run_lr_solo, {
       req(seurat_obj)
 
-      grp   <- input$lr_solo_target
-      spots <- if (identical(input$lr_entity_type, "ROIs")) {
+      all_spots_mode <- identical(input$lr_entity_type, "All")
+      grp   <- if (all_spots_mode) "All spots" else input$lr_solo_target
+      spots <- if (all_spots_mode) {
+        colnames(seurat_obj)
+      } else if (identical(input$lr_entity_type, "ROIs")) {
         rr <- rois()[[grp]]; if (is.null(rr)) character(0) else rr$spots
       } else {
         group_spots_of(grp)
       }
 
       if (length(spots) == 0) {
-        showNotification(paste0("'", grp, "' has no spots — pick a non-empty ROI/group."), type = "error")
+        showNotification(if (all_spots_mode) "This dataset has no spots."
+                         else paste0("'", grp, "' has no spots — pick a non-empty ROI/group."),
+                         type = "error")
         return()
       }
 
       # load LR database
 
       lrpair <- lr_network()
-            if (is.null(lrpair) || nrow(lrpair) == 0) {
-              showNotification("L-R database not found or empty.", type = "error")
-              return()
-            }     
+      if (is.null(lrpair) || nrow(lrpair) == 0) {
+        showNotification("L-R database not found or empty.", type = "error")
+        return()
+      }
+      selected_databases <- input$lr_solo_db_filter
+      if (length(selected_databases) == 0) {
+        showNotification("Select at least one ligand-receptor database.", type = "error")
+        return()
+      }
+      if ("database" %in% colnames(lrpair)) {
+        lrpair <- lrpair[lrpair$database %in% selected_databases, , drop = FALSE]
+      }
+      lrpair <- lrpair[!duplicated(paste(lrpair$from, lrpair$to, sep = "\r")), , drop = FALSE]
+      if (nrow(lrpair) == 0) {
+        showNotification("No ligand-receptor pairs remain for the selected databases.", type = "warning")
+        return()
+      }
 
       showNotification("Running LR scoring...", id = "lr_solo_running", duration = NULL)
 
@@ -3020,16 +3227,17 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
           DefaultAssay(seurat_sub) <- spatial_assay
           # FIXED — works for both Assay (v4) and Assay5 (v5)
-          counts_mat <- tryCatch(
-            GetAssayData(seurat_sub, assay = spatial_assay, layer = "counts"),
+          expr_mat <- tryCatch(
+            GetAssayData(seurat_sub, assay = spatial_assay, layer = "data"),
             error = function(e)
-              GetAssayData(seurat_sub, assay = spatial_assay, slot  = "counts")
+              GetAssayData(seurat_sub, assay = spatial_assay, slot  = "data")
           )
-          counts_mat <- as(counts_mat, "CsparseMatrix")  # ensure sparse matrix format
+          expr_mat <- as(expr_mat, "CsparseMatrix")
 
-          avail_genes <- rownames(counts_mat)
-          n_spots     <- ncol(counts_mat)
-          spot_names  <- colnames(counts_mat)
+          avail_genes <- rownames(expr_mat)
+          n_spots     <- ncol(expr_mat)
+          spot_names  <- colnames(expr_mat)
+          if (n_spots < 2) stop("At least two spots are required for spatial smoothing.")
 
           # ── Spatial coordinates ────────────────────────────────────────
           coords     <- GetTissueCoordinates(seurat_sub)
@@ -3049,31 +3257,32 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           }
 
           # ── KNN ────────────────────────────────────────────────────────
-          k_nbrs <- 12
+          k_nbrs <- min(12L, n_spots - 1L)
           knn_nb <- spdep::knn2nb(spdep::knearneigh(coords_mat, k = k_nbrs))
           # Gaussian-kernel bandwidth multiplier on the adaptive sigma (R1 #4).
           bw_mult <- if (is.null(input$lr_bandwidth_mult) || input$lr_bandwidth_mult <= 0) 1 else input$lr_bandwidth_mult
 
           # ── Spatial lag for ligands ────────────────────────────────────
-          unique_L   <- unique(lrpair_avail$from)
-          incProgress(0.2, detail = paste("Spatial lag for", length(unique_L), "ligands"))
+          genes_to_smooth <- unique(c(lrpair_avail$from, lrpair_avail$to))
+          incProgress(0.2, detail = paste("Spatial smoothing for", length(genes_to_smooth), "genes"))
 
-          L_lag_cache <- list()
-          for (gene in unique_L) {
-            expr <- as.numeric(counts_mat[gene, ])
+          smoothed_cache <- list()
+          for (gene in genes_to_smooth) {
+            expr <- pmax(as.numeric(expr_mat[gene, ]), 0)
             lag  <- numeric(n_spots)
             for (i in seq_len(n_spots)) {
               nb_idx <- knn_nb[[i]]
               if (length(nb_idx) > 0) {
                 dists  <- sqrt(rowSums((coords_mat[nb_idx, ] - coords_mat[i, ])^2))
                 sigma  <- median(dists) * bw_mult
+                if (!is.finite(sigma) || sigma <= 0) sigma <- 1
                 w      <- exp(-dists^2 / (2 * sigma^2))
                 lag[i] <- (expr[i] + sum(expr[nb_idx] * w)) / (1 + sum(w))
               } else {
                 lag[i] <- expr[i]
               }
             }
-            L_lag_cache[[gene]] <- lag
+            smoothed_cache[[gene]] <- lag
           }
 
           # ── Geometric mean score matrix ────────────────────────────────
@@ -3084,8 +3293,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           score_mat <- matrix(0, nrow = n_spots, ncol = n_pairs,
                               dimnames = list(spot_names, pair_names))
           for (j in seq_len(n_pairs)) {
-            score_mat[, j] <- sqrt(L_lag_cache[[ lrpair_avail$from[j] ]] *
-                                  as.numeric(counts_mat[ lrpair_avail$to[j], ]))
+            score_mat[, j] <- sqrt(smoothed_cache[[lrpair_avail$from[j]]] *
+                                  smoothed_cache[[lrpair_avail$to[j]]])
           }
 
           # ── Summary table: LR_Pair + Mean_Score only ──────────────────
@@ -3156,6 +3365,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       updateSelectInput(session, "feature_type", selected = "None")
       showing_gene_set(FALSE)
       current_values(full_scores)
+      current_feature_label(pair)
       is_categorical(FALSE)
       updateSelectInput(session, "color_scheme", selected = "greyred")
       update_map_colors()
@@ -3174,8 +3384,11 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
     # ── Download ────────────────────────────────────────────────────────────
     output$dl_lr_solo <- downloadHandler(
-      filename = function() paste0("LR_scores_", input$lr_solo_target, "_",
-                                    format(Sys.time(), "%Y%m%d"), ".csv"),
+      filename = function() paste0(gsub("[^A-Za-z0-9_-]+", "_", current_sample_name()),
+                                    "_LR_scores_",
+                                    gsub("[^A-Za-z0-9_-]+", "_", input$lr_solo_target),
+                                    "_bw", if (is.null(input$lr_bandwidth_mult)) 1 else input$lr_bandwidth_mult,
+                                    "_", format(Sys.time(), "%Y%m%d"), ".csv"),
       content  = function(file) {
         req(lr_solo_results())
         write.csv(lr_solo_results(), file, row.names = FALSE)
@@ -3607,16 +3820,17 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         }
 
 
-        if (is.null(spatial_obj@reductions$pca)) {
-          spatial_obj <- Seurat::RunPCA(spatial_obj, verbose = FALSE)
-        }
+        # Recompute reductions after subsetting. Reusing a full-tissue PCA/UMAP
+        # for an ROI would make the ROI clustering depend on excluded spots.
+        n_var <- length(Seurat::VariableFeatures(spatial_obj))
+        if (n_var == 0) n_var <- nrow(spatial_obj)
+        n_pcs <- min(as.integer(input$cluster_dims), ncol(spatial_obj) - 1L, n_var)
+        if (!is.finite(n_pcs) || n_pcs < 2) stop("At least three spots and two usable features are required for clustering.")
+        spatial_obj <- Seurat::RunPCA(spatial_obj, npcs = n_pcs, verbose = FALSE)
 
-        spatial_obj <- FindNeighbors(spatial_obj, dims = 1:input$cluster_dims, verbose = FALSE)
+        spatial_obj <- FindNeighbors(spatial_obj, dims = seq_len(n_pcs), verbose = FALSE)
         spatial_obj <- FindClusters(spatial_obj, resolution = input$cluster_resolution, verbose = FALSE)
-
-        if (is.null(spatial_obj@reductions$umap)) {
-          spatial_obj <- RunUMAP(spatial_obj, dims = 1:input$cluster_dims, verbose = FALSE)
-        }
+        spatial_obj <- RunUMAP(spatial_obj, dims = seq_len(n_pcs), verbose = FALSE)
 
 
         clusters <- Idents(spatial_obj)
@@ -3654,11 +3868,8 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       if (is.null(cluster_res)) {
         "No clustering results yet"
       } else {
-        selection_text <- switch(cluster_res$spot_selection,
-                                 "all" = "All spots",
-                                 "group1" = "Group 1 spots only",
-                                 "group2" = "Group 2 spots only"
-        )
+        selection_text <- if (identical(cluster_res$spot_selection, "all"))
+          "All spots" else cluster_res$spot_selection
 
         paste0("Spot Selection: ", selection_text, "\n",
                "Number of spots: ", cluster_res$n_spots, "\n",
@@ -3690,6 +3901,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         paste("✓", spot_count, "spots will be clustered")
       }
     })
+    outputOptions(output, "cluster_spot_count", suspendWhenHidden = FALSE)
 
     output$cluster_umap <- renderPlot({
       cluster_res <- cluster_results()
@@ -3716,7 +3928,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         req(res)
         df <- data.frame(
           spot_id = names(res$clusters),
-          cluster = as.integer(res$clusters)
+          cluster = as.character(res$clusters)
         )
         df <- df[order(df$cluster), ]   # ← sort by cluster number
         write.csv(df, file, row.names = FALSE)
@@ -3724,7 +3936,10 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     )    
 
     observe({
-      if (input$show_clusters) {
+      # isTRUE, not a bare if: the checkbox is NULL until the first input flush
+      # and `if (NULL)` raises "argument is of length zero", which aborts the
+      # whole flush and takes every other observer in it down with it.
+      if (isTRUE(input$show_clusters)) {
         cluster_res <- cluster_results()
 
         if (is.null(cluster_res)) {
@@ -3733,10 +3948,6 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           return()
         }
 
-        # Clear groups when showing clusters
-        leafletProxy("map") %>%
-          clearGroup("group1_display") %>%
-          clearGroup("group2_display")
         updateCheckboxInput(session, "show_groups", value = FALSE)
 
         clusters <- cluster_res$clusters
@@ -3841,40 +4052,42 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         scores <- temp_seurat$GeneSet1
 
       } else if (method == "gsva") {
-        # VECTORIZED GSVA ALTERNATIVE: Fast rank-based enrichment score
-        # This uses matrix operations to rank all cells at once (10-50x faster than loop)
+        # Real GSVA (Hanzelmann et al. 2013): a per-spot kernel-estimated CDF
+        # followed by a Kolmogorov-Smirnov-like random walk over the ranked
+        # gene list. Earlier versions of this app shipped a mean-rank
+        # difference under the "rank-based" label; that statistic is NOT GSVA
+        # and is no longer offered, because reporting it as GSVA would be wrong.
+        if (!requireNamespace("GSVA", quietly = TRUE)) {
+          stop(paste0("GSVA is not installed on this server. Install it with:\n",
+                      '  if (!requireNamespace("BiocManager")) install.packages("BiocManager")\n',
+                      '  BiocManager::install("GSVA")\n',
+                      "Or choose Mean expression or AddModuleScore instead."))
+        }
+        if (length(genes_in_data) < 2)
+          stop("GSVA needs at least two genes from the set to be present in the data.")
 
-        # Get expression matrix
         expr_mat <- tryCatch(
           GetAssayData(seurat_obj, assay = DefaultAssay(seurat_obj), layer = "data"),
-          error = function(e) 
-          GetAssayData(seurat_obj, assay = DefaultAssay(seurat_obj), slot = "data")
-        )       
+          error = function(e)
+            GetAssayData(seurat_obj, assay = DefaultAssay(seurat_obj), slot = "data"))
+        expr_mat <- as.matrix(expr_mat)
 
-        # VECTORIZED RANKING: Rank all genes for all cells simultaneously
-        # Wrap in tryCatch to handle interruptions gracefully
-        rank_mat <- tryCatch({
-          # apply(expr_mat, 2, rank) ranks each column (cell) independently
-          apply(expr_mat, 2, rank, ties.method = "average")
-        }, error = function(e) {
-          # If interrupted, return NULL to trigger proper error handling upstream
-          stop("Calculation interrupted")
-        })
+        # kcdf: the data layer here is log-normalised (continuous), so Gaussian
+        # is the right kernel. Poisson would be correct only for raw integers.
+        gsva_res <- tryCatch({
+          if ("gsvaParam" %in% getNamespaceExports("GSVA")) {
+            GSVA::gsva(GSVA::gsvaParam(exprData = expr_mat,
+                                       geneSets = list(GeneSet = genes_in_data),
+                                       kcdf = "Gaussian"), verbose = FALSE)
+          } else {
+            # GSVA < 1.50 used the older single-function interface.
+            GSVA::gsva(expr_mat, list(GeneSet = genes_in_data),
+                       method = "gsva", kcdf = "Gaussian", verbose = FALSE)
+          }
+        }, error = function(e) stop(paste("GSVA failed:", conditionMessage(e))))
 
-        # Get ranks for gene set genes across all cells
-        gene_set_ranks <- rank_mat[genes_in_data, , drop = FALSE]
-
-        # Calculate mean rank of gene set for each cell (vectorized)
-        mean_rank_geneset <- colMeans(gene_set_ranks)
-
-        # Calculate overall mean rank for each cell (should be constant: (n+1)/2)
-        mean_rank_all <- colMeans(rank_mat)
-
-        # Calculate enrichment scores (vectorized across all cells)
-        # Normalize to [-1, 1] scale like GSVA
-        scores <- (mean_rank_geneset - mean_rank_all) / (nrow(expr_mat) / 2)
-
-        names(scores) <- colnames(expr_mat)
+        scores <- as.numeric(gsva_res[1, ])
+        names(scores) <- colnames(gsva_res)
       }
 
       return(list(
@@ -3898,7 +4111,11 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         return()
       }
 
-      showNotification("Calculating gene set scores...", type = "message", id = "calc_gene_set")
+      showNotification(
+        if (identical(input$gene_set_method, "gsva"))
+          "Running GSVA... this takes about a minute on a 1,250-spot section."
+        else "Calculating gene set scores...",
+        type = "message", duration = NULL, id = "calc_gene_set")
 
       tryCatch({
         # Suppress all warnings and messages during calculation to prevent termination errors
@@ -3909,7 +4126,12 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
         removeNotification(id = "calc_gene_set")
         # Create detailed notification message
-        msg <- paste0("✓ Scores calculated using ", input$gene_set_method, "\n",
+        # Report the display name, not the internal code ("rank" etc.).
+        method_label <- c(mean = "Mean expression",
+                          addmodulescore = "AddModuleScore (Seurat)",
+                          gsva = "GSVA (rank-based)")[input$gene_set_method]
+        if (is.na(method_label)) method_label <- input$gene_set_method
+        msg <- paste0("\u2713 Scores calculated using ", method_label, "\n",
                       "Found: ", result$n_found, "/", result$n_total, " genes")
 
         if (result$n_missing > 0) {
@@ -3944,6 +4166,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
         # Set gene set data as current display
         current_values(result$scores)
+        current_feature_label(input$gene_set_name)
         is_categorical(FALSE)  # Gene set scores are always continuous
         showing_gene_set(TRUE)  # Set flag to indicate we're showing gene set
         update_map_colors()
@@ -3951,7 +4174,14 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
       }, error = function(e) {
         removeNotification(id = "calc_gene_set")
-        showNotification(paste("Error:", e$message), type = "error", duration = 10)
+        interrupted <- grepl("future.*interrupted|Calculation interrupted",
+                             conditionMessage(e), ignore.case = TRUE)
+        msg <- if (interrupted) {
+          "Gene-set calculation was interrupted. Click Calculate again; if it repeats, use Mean expression and report the selected scoring method."
+        } else {
+          paste("Gene-set calculation failed:", conditionMessage(e))
+        }
+        showNotification(msg, type = "error", duration = 12)
       })
     })
 
@@ -3987,12 +4217,16 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
     # Color functions
     get_color_palette <- function(scheme, n = 100) {
-      if (scheme == "greyred") {
-        colorRampPalette(c("grey90", "red"))(n)
-      } else if (scheme == "bwr") {
+      # Guard the NULL/unknown cases: `if (NULL == "greyred")` raises "argument
+      # is of length zero" and aborts the whole reactive flush, and falling off
+      # the end of the old if-chain returned NULL, which broke the colour scale
+      # rather than showing anything.
+      if (identical(scheme, "bwr")) {
         colorRampPalette(c("blue", "white", "red"))(n)
-      } else if (scheme == "rainbow") {
+      } else if (identical(scheme, "rainbow")) {
         colorRampPalette(c("darkblue", "cyan", "green", "yellow", "orange", "red"))(n)
+      } else {
+        colorRampPalette(c("grey90", "red"))(n)   # greyred is the UI default
       }
     }
 
@@ -4060,15 +4294,16 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       input$geneset_color_scheme
       input$spot_size
     }, {
-      if (input$feature_type == "Gene Expression" && !is.null(input$gene_select) && input$gene_select != "") {
+      if (identical(input$feature_type, "Gene Expression") && !is.null(input$gene_select) && input$gene_select != "") {
         gene_expr <- FetchData(seurat_obj, vars = input$gene_select, layer = "data")
         values <- gene_expr[spots_sf$spot_id, 1]
         is_categorical(FALSE)  # Gene expression is continuous
         current_values(values)
+        current_feature_label(input$gene_select)
         showing_gene_set(FALSE)  # Not showing gene set
 
 
-      } else if (input$feature_type == "Metadata" && !is.null(input$meta_select) && input$meta_select != "") {
+      } else if (identical(input$feature_type, "Metadata") && !is.null(input$meta_select) && input$meta_select != "") {
         meta_vals <- seurat_obj@meta.data[spots_sf$spot_id, input$meta_select]
         if (is.factor(meta_vals) || is.character(meta_vals)) {
           # Keep as categorical - don't convert to numeric
@@ -4079,15 +4314,17 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           is_categorical(FALSE)
           current_values(meta_vals)
         }
+        current_feature_label(input$meta_select)
         showing_gene_set(FALSE)  # Not showing gene set
 
-      } else if (input$feature_type == "Gene Set" && !is.null(input$geneset_select) && input$geneset_select != "") {
+      } else if (identical(input$feature_type, "Gene Set") && !is.null(input$geneset_select) && input$geneset_select != "") {
         scores <- gene_set_scores()[[input$geneset_select]]
         is_categorical(FALSE)  # Gene set scores are continuous
         current_values(scores)
+        current_feature_label(input$geneset_select)
         showing_gene_set(FALSE)  # This is old gene set from removed feature
 
-      } else if (input$feature_type == "Clustering") {
+      } else if (identical(input$feature_type, "Clustering")) {
         cluster_res <- cluster_results()
         if (!is.null(cluster_res)) {
           clusters <- cluster_res$clusters
@@ -4095,10 +4332,12 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           cluster_vals <- as.character(clusters)[match(spots_sf$spot_id, names(clusters))]
           is_categorical(TRUE)  # Clusters are categorical
           current_values(cluster_vals)
+          current_feature_label("Cluster")
           showing_gene_set(FALSE)  # Not showing gene set
         } else {
           showNotification("Run clustering first!", type = "warning")
           current_values(NULL)
+          current_feature_label(NULL)
           showing_gene_set(FALSE)
         }
 
@@ -4108,6 +4347,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           # Don't change current_values, just update colors by calling update_map_colors
         } else {
           current_values(NULL)
+          current_feature_label(NULL)
           showing_gene_set(FALSE)
         }
       }
@@ -4163,8 +4403,6 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     draw_group_overlay <- function() {
       proxy <- leafletProxy("map") %>%
         clearGroup("group_display") %>%
-        clearGroup("group1_display") %>%   # legacy layer names (harmless to clear)
-        clearGroup("group2_display") %>%
         clearGroup("roi_contour")
 
       r  <- rois()
@@ -4213,6 +4451,174 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
       invisible(NULL)
     }
+
+    # ── Save the current map view as a PDF ────────────────────────────────────
+    # Rebuilt server-side as a ggplot rather than screenshotting the browser.
+    # webshot2/mapshot would need a headless Chrome the CRC host does not have,
+    # and costs seconds per click; every layer the map draws already comes from
+    # objects held right here, so the same state yields a vector PDF for the
+    # price of one PNG decode. Nothing is precomputed — this runs only on click,
+    # so it adds no cost to normal interaction.
+    map_view_plot <- function() {
+      if (is.null(spots_sf)) return(NULL)
+      df <- data.frame(x = spots_sf$x, y = spots_sf$y, stringsAsFactors = FALSE)
+      values <- current_values()
+      scheme <- if (isTRUE(showing_gene_set())) input$geneset_color_scheme else input$color_scheme
+      if (is.null(scheme) || !scheme %in% c("greyred", "bwr", "rainbow")) scheme <- "greyred"
+      lbl <- current_feature_label()
+      spot_sz <- if (is.null(input$spot_size)) 4 else input$spot_size
+      cat_override <- NULL
+
+      # "Show clusters on map" paints the spots straight through leafletProxy and
+      # never touches current_values(), so without this the export would keep
+      # saving whatever feature was displayed before the clusters.
+      cluster_layer <- isTRUE(input$show_clusters) && !is.null(cluster_results())
+      if (cluster_layer) {
+        cl <- cluster_results()$clusters
+        values <- as.character(cl)[match(spots_sf$spot_id, names(cl))]
+        lbl <- "Cluster"
+        cat_override <- cluster_colors_palette()
+      }
+
+      p <- ggplot()
+
+      # H&E underlay, at the opacity set on the map. The bounds are the same
+      # flipped coordinates the spots use, and PNG row 1 is the northern edge.
+      if (!is.null(he_image_base64) && !is.null(he_image_bounds)) {
+        img <- tryCatch({
+          raw_png <- base64enc::base64decode(sub("^data:image/png;base64,", "", he_image_base64))
+          png::readPNG(raw_png)
+        }, error = function(e) NULL)
+        if (!is.null(img)) {
+          op <- if (is.null(input$image_opacity)) 0.6 else input$image_opacity
+          p <- p + ggplot2::annotation_raster(
+            grDevices::as.raster(img, max = 1),
+            xmin = he_image_bounds$west,  xmax = he_image_bounds$east,
+            ymin = he_image_bounds$south, ymax = he_image_bounds$north,
+            interpolate = TRUE)
+          if (op < 1) {
+            # annotation_raster has no alpha: wash the image toward white with a
+            # translucent panel so the printed contrast matches the slider.
+            p <- p + ggplot2::annotate("rect",
+              xmin = he_image_bounds$west,  xmax = he_image_bounds$east,
+              ymin = he_image_bounds$south, ymax = he_image_bounds$north,
+              fill = "white", alpha = 1 - op)
+          }
+        }
+      }
+
+      # Spots, coloured the way the map colours them. Values are passed through
+      # a real scale rather than as baked hex, so the PDF carries a legend.
+      if (is.null(values)) {
+        p <- p + ggplot2::geom_point(data = df, ggplot2::aes(x = x, y = y),
+                                     shape = 21, fill = "lightblue",
+                                     colour = "#333333", stroke = .15,
+                                     size = spot_sz * 0.45)
+      } else if (cluster_layer || isTRUE(is_categorical())) {
+        df$value <- as.character(values)
+        cats <- unique(df$value[!is.na(df$value)])
+        cats <- cats[order(suppressWarnings(as.numeric(cats)), cats, na.last = TRUE)]
+        if (!is.null(cat_override) && all(cats %in% names(cat_override))) {
+          cols <- cat_override[cats]           # exactly the map's cluster colours
+        } else {
+          cols <- if (length(cats) <= 8) {
+            c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3",
+              "#FF7F00", "#FFFF33", "#A65628", "#F781BF")[seq_along(cats)]
+          } else grDevices::rainbow(length(cats))
+        }
+        names(cols) <- cats
+        df$value <- factor(df$value, levels = cats)
+        p <- p + ggplot2::geom_point(data = df, ggplot2::aes(x = x, y = y, fill = value),
+                                     shape = 21, colour = "#333333", stroke = .15,
+                                     size = spot_sz * 0.45) +
+          ggplot2::scale_fill_manual(values = cols, na.value = "lightgrey",
+                                     name = if (is.null(lbl)) "Category" else lbl)
+      } else {
+        df$value <- suppressWarnings(as.numeric(values))
+        p <- p + ggplot2::geom_point(data = df, ggplot2::aes(x = x, y = y, fill = value),
+                                     shape = 21, colour = "#333333", stroke = .15,
+                                     size = spot_sz * 0.45) +
+          ggplot2::scale_fill_gradientn(colours = get_color_palette(scheme, 100),
+                                        na.value = "lightgrey",
+                                        name = if (is.null(lbl)) "Value" else lbl)
+      }
+
+      # ROI layers, honouring the same focus filter and checkboxes as the map.
+      r <- rois(); nm <- names(r)
+      focus <- input$roi_show_filter
+      show_i <- if (is.null(focus) || identical(focus, "__all__")) seq_along(nm)
+        else if (startsWith(focus, "roi:")) which(nm == sub("^roi:", "", focus))
+        else if (startsWith(focus, "grp:"))
+          which(nm %in% groups()[[sub("^grp:", "", focus)]]$members)
+        else seq_along(nm)
+
+      if (isTRUE(input$show_groups) && length(nm) > 0) {
+        for (i in show_i) {
+          idx <- which(spots_sf$spot_id %in% r[[nm[i]]]$spots)
+          if (length(idx) == 0) next
+          p <- p + ggplot2::annotate("point", x = spots_sf$x[idx], y = spots_sf$y[idx],
+                                     colour = group_color(i),
+                                     alpha = if (isTRUE(input$transparent_groups)) .6 else 1,
+                                     size = spot_sz * 0.4)
+        }
+      }
+      if (isTRUE(input$show_roi_contours) && length(nm) > 0) {
+        for (i in show_i) for (rg in r[[nm[i]]]$rings) {
+          if (length(rg$lng) < 2) next
+          rdf <- data.frame(x = rg$lng, y = rg$lat)
+          p <- p +
+            ggplot2::geom_path(data = rdf, ggplot2::aes(x = x, y = y),
+                               colour = "white", linewidth = 1.1) +
+            ggplot2::geom_path(data = rdf, ggplot2::aes(x = x, y = y),
+                               colour = "black", linewidth = .45, linetype = "dashed")
+        }
+      }
+
+      n_roi <- length(show_i)
+      p + ggplot2::coord_fixed(expand = FALSE) +
+        ggplot2::labs(
+          title = current_sample_name(),
+          subtitle = paste0(
+            if (!is.null(lbl) && nzchar(lbl)) paste0(lbl, "  ·  ") else "",
+            nrow(df), " spots",
+            if (n_roi > 0 && (isTRUE(input$show_groups) || isTRUE(input$show_roi_contours)))
+              paste0("  ·  ", n_roi, " ROI", if (n_roi != 1) "s" else "") else ""),
+          x = NULL, y = NULL) +
+        ggplot2::theme_void(base_size = 14) +
+        ggplot2::theme(
+          # theme_void leaves the background transparent, which prints as black
+          # in most PDF viewers and readers. Paint it white explicitly.
+          plot.background  = ggplot2::element_rect(fill = "white", colour = NA),
+          panel.background = ggplot2::element_rect(fill = "white", colour = NA),
+          plot.title = ggplot2::element_text(face = "bold", hjust = .5, size = 16,
+                                             margin = ggplot2::margin(b = 4)),
+          plot.subtitle = ggplot2::element_text(hjust = .5, size = 11, colour = "grey30",
+                                                margin = ggplot2::margin(b = 8)),
+          legend.position = "right",
+          legend.title = ggplot2::element_text(size = 11),
+          legend.text  = ggplot2::element_text(size = 10),
+          plot.margin = ggplot2::margin(14, 14, 14, 14))
+    }
+
+    output$dl_map_view <- downloadHandler(
+      filename = function() {
+        cl <- function(x) gsub("[^A-Za-z0-9_-]+", "_", as.character(x))
+        lbl <- current_feature_label()
+        paste0(cl(current_sample_name()), "_view",
+               if (!is.null(lbl) && nzchar(lbl)) paste0("_", cl(lbl)) else "",
+               "_", format(Sys.time(), "%Y%m%d"), ".pdf")
+      },
+      content = function(file) {
+        p <- tryCatch(map_view_plot(), error = function(e) {
+          showNotification(paste("Could not render the view:", conditionMessage(e)),
+                           type = "error", duration = 8)
+          NULL
+        })
+        if (is.null(p)) { showNotification("Load a dataset first.", type = "warning"); return() }
+        ggplot2::ggsave(file, plot = p, width = 9, height = 8, dpi = 300, device = "pdf",
+                        limitsize = FALSE)
+      }
+    )
 
     update_map_colors <- function() {
       values <- current_values()
@@ -4804,16 +5210,6 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       showNotification(paste0("Removed group '", input$remove_group, "'."), type = "message")
     })
 
-    output$group1_info <- renderText({
-      g1 <- group1_spots()
-      if (length(g1) == 0) "Group 1: Empty" else paste("Group 1:", length(g1), "spots")
-    })
-
-    output$group2_info <- renderText({
-      g2 <- group2_spots()
-      if (length(g2) == 0) "Group 2: Empty" else paste("Group 2:", length(g2), "spots")
-    })
-
     # Redraw the overlay whenever the checkbox, the group memberships, or the
     # transparency option change. Reading each reactive here registers the
     # dependency, then delegates to draw_group_overlay() so the toggle path and
@@ -4843,10 +5239,29 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     })
     deg_sideA_label <- reactiveVal("Side A")
     deg_sideB_label <- reactiveVal("Side B")
+    # Settings captured at run time. Cross-sample comparison is only valid when
+    # every signature used the same test and thresholds, so they travel with the
+    # exported table rather than relying on the user to remember.
+    deg_run_meta <- reactiveVal(NULL)
+    # Why Moran's I was skipped, so the panel can say so instead of showing a
+    # bare "not available" that gives the user nothing to act on.
+    deg_moran_note <- reactiveVal(NULL)
+    # How many DEGs the spatial screen actually covered, so the plot can say so.
+    deg_moran_scope <- reactiveVal(NULL)
 
     observeEvent(input$run_deg, {
-      # Force sequential IMMEDIATELY before FindMarkers is called
+      # Keep Seurat's computation deterministic for this operation, then restore
+      # the caller's future plan so loading SpatialROI does not alter the R session.
+      previous_future_plan <- future::plan()
+      previous_future_max <- getOption("future.globals.maxSize")
+      on.exit({
+        future::plan(previous_future_plan)
+        options(future.globals.maxSize = previous_future_max)
+      }, add = TRUE)
       future::plan("sequential")
+      options(future.globals.maxSize = 8000 * 1024^2)
+      deg_results(NULL)
+      deg_run_meta(NULL)
 
       # ── Resolve Side A / Side B from the unified ROI/group pickers ──
       vs_rest <- identical(input$deg_side_b, "__rest__")
@@ -4855,10 +5270,9 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       deg_sideA_label(region_label(input$deg_side_a))
       deg_sideB_label(if (vs_rest) "Rest" else region_label(input$deg_side_b))
 
-      # Cluster-level DEG lives in the Clustering tab; the DEG tab compares regions.
-      is_cluster_analysis <- FALSE
-
-      if (!is_cluster_analysis) {
+      # Cluster-level DEG lives in the Clustering tab, so this handler only ever
+      # runs the region-vs-region path. (The old cluster branch was unreachable.)
+      {
         if (length(g1) == 0) {
           showNotification("Side A is empty — pick a non-empty ROI/group.", type = "error"); return()
         }
@@ -4868,13 +5282,32 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
         showNotification("Running DEG analysis...", type = "message", duration = NULL, id = "deg_running")
 
+        # A spot shared by both regions stays in both sides; the labels record
+        # how many. The two sets are then not independent, which the notice says.
+        if (!vs_rest) {
+          shared <- intersect(g1, g2)
+          if (length(shared) > 0) {
+            if (setequal(g1, g2)) {
+              removeNotification(id = "deg_running")
+              showNotification("Both sides contain exactly the same spots — nothing to compare.",
+                               type = "error"); return()
+            }
+            deg_sideA_label(paste0(deg_sideA_label(), " (", length(shared), " shared)"))
+            deg_sideB_label(paste0(deg_sideB_label(), " (", length(shared), " shared)"))
+            showNotification(
+              paste0(length(shared), " spot(s) are in both sides and were kept. ",
+                     "The two sets are not independent, so treat the p-values as descriptive."),
+              type = "warning", duration = 8)
+          }
+        }
+
         tryCatch({
           temp_idents <- rep("Other", ncol(seurat_obj))
           names(temp_idents) <- colnames(seurat_obj)
           temp_idents[g1] <- "Group1"
           if (!vs_rest) temp_idents[g2] <- "Group2"
 
-          cells_to_use <- if (!vs_rest) c(g1, g2) else colnames(seurat_obj)
+          cells_to_use <- if (!vs_rest) unique(c(g1, g2)) else colnames(seurat_obj)
 
           temp_seurat <- subset(seurat_obj, cells = cells_to_use)
           temp_seurat$temp_ident <- temp_idents[cells_to_use]
@@ -4883,34 +5316,43 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           deg_test   <- if (is.null(input$deg_test))   "wilcox" else input$deg_test
           deg_lfc    <- if (is.null(input$deg_logfc))  0.25     else input$deg_logfc
           deg_minpct <- if (is.null(input$deg_minpct)) 0.05     else input$deg_minpct
+          deg_fdr <- if (is.null(input$volcano_fdr)) 0.05 else input$volcano_fdr
+          deg_run_meta(list(test = deg_test, logfc = deg_lfc, minpct = deg_minpct, fdr = deg_fdr,
+                            n_a = length(g1), n_b = if (vs_rest) length(setdiff(colnames(seurat_obj), g1)) else length(g2),
+                            vs_rest = vs_rest, assay = DefaultAssay(temp_seurat)))
 
-          markers <- Seurat::FindMarkers(
+          # Use the thresholds selected in Advanced settings for the displayed
+          # results, plots, and exported descriptive Multi-Sample table.
+          tested_markers <- Seurat::FindMarkers(
             temp_seurat, ident.1 = "Group1",
             ident.2 = if (!vs_rest) "Group2" else "Other",
             test.use = deg_test, verbose = FALSE,
             min.pct = deg_minpct, logfc.threshold = deg_lfc)
 
-
-
-
-          markers$gene <- rownames(markers)
+          tested_markers$gene <- rownames(tested_markers)
           # Use Benjamini-Hochberg (FDR) correction rather than Seurat's default
           # Bonferroni p_val_adj, so the "adjusted p (BH)" control is truthful
           # and consistent with the rest of the app (Reviewer 2, item 7).
-          markers$p_val_adj <- p.adjust(markers$p_val, method = "BH")
-          # Filter by BH-adjusted p and the user's |log2FC| threshold
-          markers <- markers[!is.na(markers$p_val_adj) &
-                            markers$p_val_adj < input$volcano_fdr &
-                            abs(markers$avg_log2FC) > deg_lfc, ]
+          tested_markers$p_val_adj <- p.adjust(tested_markers$p_val, method = "BH")
+
+          # The ordinary DEG view remains concise and respects the biologist's
+          # chosen FDR after Seurat applies the selected prevalence/effect gates.
+          markers <- tested_markers[!is.na(tested_markers$p_val_adj) &
+                            tested_markers$p_val_adj < deg_fdr, , drop = FALSE]
           # Rank by log2FC
           markers <- markers[order(-abs(markers$avg_log2FC)), ]          
 
           # ── Moran's I spatial autocorrelation ──────────────────────────────
+          deg_moran_note(NULL); deg_moran_scope(NULL)
+          removeNotification(id = "moran_skip")
+          if (!requireNamespace("spdep", quietly = TRUE)) {
+            deg_moran_note("The spdep package is not installed on this server, so Moran's I could not be computed.")
+            showNotification("Moran's I skipped: the spdep package is not installed.",
+                             type = "warning", duration = 9, id = "moran_skip")
+          }
           if (requireNamespace("spdep", quietly = TRUE)) {
             tryCatch({
-              coords_full <- Seurat::GetTissueCoordinates(seurat_obj)  
-              message("DEBUG group colnames: ", paste(colnames(coords_full), collapse=", "))
-              message("DEBUG coord_cols found: ", paste(intersect(c("imagerow", "imagecol", "pxl_row_in_fullres", "pxl_col_in_fullres"), colnames(coords_full)), collapse=", "))           
+              coords_full <- Seurat::GetTissueCoordinates(seurat_obj)
               moran_spots <- g1   # Side A (the ROI/group being characterized)
               coords <- coords_full[rownames(coords_full) %in% moran_spots, ]
 
@@ -4920,17 +5362,48 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
               rownames(coords) <- rownames(coords_full)[rownames(coords_full) %in% moran_spots]
 
+              if (nrow(coords) < 30) {
+                deg_moran_note(paste0(
+                  "Moran's I needs at least 30 spots in Side A; this region has ",
+                  nrow(coords), ". Draw a larger region to get the spatial screen."))
+                showNotification(paste0("Moran's I skipped: Side A has ", nrow(coords),
+                                        " spots and at least 30 are needed. Draw a larger region."),
+                                 type = "warning", duration = 9, id = "moran_skip")
+              }
               if (nrow(coords) >= 30) {
                 effective_k <- min(6, nrow(coords) - 1)
                 knn_obj     <- spdep::knearneigh(coords, k = effective_k)
                 listw_obj   <- spdep::nb2listw(spdep::knn2nb(knn_obj), style = "W", zero.policy = TRUE)
 
-                spatial_assay <- if ("Spatial" %in% names(seurat_obj@assays)) "Spatial" else DefaultAssay(seurat_obj)
+                # Use the same assay the DEG was computed on. Forcing "Spatial"
+                # picked up a raw-count data layer on objects whose normalized
+                # values live in SCT, so Moran's I was measuring sequencing depth
+                # rather than spatial structure — and disagreed with the volcano.
+                spatial_assay <- if (!is.null(deg_run_meta()$assay)) deg_run_meta()$assay
+                                 else DefaultAssay(seurat_obj)
+                if (!spatial_assay %in% names(seurat_obj@assays))
+                  spatial_assay <- DefaultAssay(seurat_obj)
 
-                # Only run Moran's I on significant DEGs (the pathologist's workflow)
-                candidate_genes <- intersect(markers$gene,
+                # Keep this secondary spatial screen responsive. Test at most the
+                # 200 filtered DEGs with the largest absolute effect sizes; the
+                # primary DEG table still retains the complete gene universe.
+                moran_cap <- 200L
+                deg_moran_scope(list(tested = min(moran_cap, nrow(markers)),
+                                     total  = nrow(markers),
+                                     cap    = moran_cap))
+                ranked_moran_genes <- head(markers$gene[order(-abs(markers$avg_log2FC))], moran_cap)
+                candidate_genes <- intersect(ranked_moran_genes,
                   rownames(Seurat::GetAssayData(seurat_obj, assay = spatial_assay, layer = "data")))
                                     
+                if (length(candidate_genes) == 0) {
+                  deg_moran_note(paste0(
+                    "No differentially expressed genes passed the current thresholds, ",
+                    "so there was nothing to test for spatial structure. Loosen the ",
+                    "FDR or log2FC cut-off in Advanced settings."))
+                  showNotification(paste0("Moran's I skipped: no DEGs passed the current thresholds. ",
+                                          "Loosen the FDR or log2FC cut-off in Advanced settings."),
+                                   type = "warning", duration = 9, id = "moran_skip")
+                }
                 if (length(candidate_genes) > 0) {
                   expr_matrix <- as.matrix(
                     Seurat::GetAssayData(seurat_obj, assay = spatial_assay, layer = "data")[candidate_genes, rownames(coords), drop = FALSE]
@@ -4953,11 +5426,16 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                   markers <- merge(markers, moran_df, by = "gene", all.x = TRUE)
                   markers$gene <- as.character(markers$gene)
 
+                  # A gene must show POSITIVE autocorrelation to count as
+                  # structured. moran.test compares against E[I] = -1/(n-1),
+                  # which is below zero, so a slightly negative I could
+                  # otherwise come out "significant" and be labelled structured
+                  # when it actually indicates dispersion.
                   markers$spatial_class <- dplyr::case_when(
-                    is.na(markers$Moran_I)                               ~ "Not tested",
-                    markers$Moran_padj < 0.05 & markers$Moran_I > 0.3   ~ "Spatially structured",
-                    markers$Moran_padj < 0.05                            ~ "Weakly structured",
-                    TRUE                                                  ~ "Not structured"
+                    is.na(markers$Moran_I)                                                  ~ "Not tested",
+                    markers$Moran_padj < 0.05 & markers$Moran_I > 0.3                      ~ "Spatially structured",
+                    markers$Moran_padj < 0.05 & markers$Moran_I > 0                        ~ "Weakly structured",
+                    TRUE                                                                     ~ "Not structured"
                   )
 
                   # Step 1: filter to significant DEGs only
@@ -4967,7 +5445,10 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                 }
               }
             }, error = function(e) {
-              message("Moran's I skipped: ", e$message)
+              deg_moran_note(paste0("Moran's I could not be computed: ", conditionMessage(e)))
+              showNotification(paste0("Moran's I skipped: ", conditionMessage(e)),
+                               type = "warning", duration = 9, id = "moran_skip")
+              message("Moran's I skipped: ", conditionMessage(e))
             })
           }
           # ───────────────────────────────────────────────────────────────────
@@ -4983,126 +5464,6 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           showNotification(paste("Error:", e$message), type = "error", duration = 10)
         })
 
-      } else {
-        # Cluster-based analysis
-        cluster_res <- cluster_results()
-
-        if (is.null(cluster_res)) {
-          showNotification("Please run clustering first!", type = "error")
-          return()
-        }
-
-        # Determine which group to analyze
-        target_group <- if (input$deg_comparison == "Clusters in Group 1 (one vs rest)") {
-          "group1"
-        } else {
-          "group2"
-        }
-
-        # Check if clustering was done on the target group
-        if (cluster_res$spot_selection != target_group) {
-          group_name <- if (target_group == "group1") "Group 1" else "Group 2"
-          showNotification(paste("Clustering was not performed on", group_name, "spots!"),
-                           type = "error", duration = 8)
-          return()
-        }
-
-        target_spots <- if (target_group == "group1") g1 else g2
-
-        if (length(target_spots) == 0) {
-          group_name <- if (target_group == "group1") "Group 1" else "Group 2"
-          showNotification(paste(group_name, "is empty!"), type = "error")
-          return()
-        }
-
-        showNotification("Running cluster marker analysis...", type = "message", duration = NULL, id = "deg_running")
-
-        tryCatch({
-          # Get clusters for the target spots
-          clusters <- cluster_res$clusters
-
-          # Subset seurat object to only clustered spots
-          temp_seurat <- subset(seurat_obj, cells = names(clusters))
-          temp_seurat$cluster_ident <- as.factor(clusters)
-          Idents(temp_seurat) <- "cluster_ident"
-
-          # Find markers for all clusters (one vs rest)
-          all_markers <- FindAllMarkers(temp_seurat,
-                                        only.pos = FALSE,
-                                        min.pct = 0.1,
-                                        logfc.threshold = 0.25,
-                                        verbose = FALSE)
-
-          # Add cluster column and reorganize
-          all_markers$gene <- rownames(all_markers)
-          all_markers$gene <- as.character(all_markers$gene)
-          all_markers <- all_markers[order(all_markers$cluster, all_markers$p_val_adj, -abs(all_markers$avg_log2FC)), ]
-
-          # Reorder columns for better readability
-          all_markers <- all_markers[, c("cluster", "gene", "avg_log2FC", "p_val", "p_val_adj", "pct.1", "pct.2")]
-
-          # Add Moran's I for cluster-based DEG
-          if (requireNamespace("spdep", quietly = TRUE)) {
-            tryCatch({
-              coords_full <- Seurat::GetTissueCoordinates(seurat_obj)
-              message("DEBUG group colnames: ", paste(colnames(coords_full), collapse=", "))
-              message("DEBUG coord_cols found: ", paste(intersect(c("imagerow", "imagecol", "pxl_row_in_fullres", "pxl_col_in_fullres"), colnames(coords_full)), collapse=", "))
-              all_spots <- names(clusters)
-              row_col <- intersect(c("imagerow", "pxl_row_in_fullres", "y"), colnames(coords_full))[1]
-              col_col <- intersect(c("imagecol", "pxl_col_in_fullres", "x"), colnames(coords_full))[1]
-              coords <- as.matrix(coords_full[all_spots, c(row_col, col_col)])              
-              
-              if (nrow(coords) >= 30) {
-                effective_k <- min(6, nrow(coords) - 1)
-                knn_obj   <- spdep::knearneigh(coords, k = effective_k)
-                listw_obj <- spdep::nb2listw(spdep::knn2nb(knn_obj), style = "W", zero.policy = TRUE)
-                
-                spatial_assay <- if ("Spatial" %in% names(seurat_obj@assays)) "Spatial" else DefaultAssay(seurat_obj)
-                
-                # Filter cluster markers same way
-                all_markers <- all_markers[!is.na(all_markers$p_val_adj) &
-                                            all_markers$p_val_adj < input$volcano_fdr &
-                                            abs(all_markers$avg_log2FC) > 0.25, ]
-                candidate_genes <- intersect(all_markers$gene,
-                  rownames(Seurat::GetAssayData(seurat_obj, assay = spatial_assay, layer = "data")))                
-                
-                if (length(candidate_genes) > 0) {
-                  expr_matrix <- as.matrix(
-                    Seurat::GetAssayData(seurat_obj, assay = spatial_assay, layer = "data")[candidate_genes, all_spots, drop = FALSE]
-                  )
-                  moran_results <- lapply(candidate_genes, function(gene) {
-                    x <- expr_matrix[gene, ]
-                    if (var(x) == 0) return(data.frame(gene = gene, Moran_I = NA_real_, Moran_pval = NA_real_))
-                    tryCatch({
-                      mt <- spdep::moran.test(x, listw = listw_obj, zero.policy = TRUE, alternative = "greater")
-                      data.frame(gene = gene, Moran_I = as.numeric(mt$estimate[1]), Moran_pval = mt$p.value)
-                    }, error = function(e) data.frame(gene = gene, Moran_I = NA_real_, Moran_pval = NA_real_))
-                  })
-                  moran_df <- do.call(rbind, moran_results)
-                  moran_df$Moran_padj <- p.adjust(moran_df$Moran_pval, method = "BH")
-                  all_markers <- merge(all_markers, moran_df, by = "gene", all.x = TRUE)
-                  all_markers$spatial_class <- dplyr::case_when(
-                    is.na(all_markers$Moran_I)                                        ~ "Not tested",
-                    all_markers$Moran_padj < 0.05 & all_markers$Moran_I > 0.3        ~ "Spatially structured",
-                    all_markers$Moran_padj < 0.05                                     ~ "Weakly structured",
-                    TRUE                                                               ~ "Not structured"
-                  )
-                  all_markers <- all_markers[order(-abs(all_markers$avg_log2FC)), ]
-                }
-              }
-            }, error = function(e) message("Moran's I skipped for clusters: ", e$message))
-          }
-
-          deg_results(all_markers)
-
-          removeNotification(id = "deg_running")
-          showNotification(paste("Found markers for", cluster_res$n_clusters, "clusters"),
-                           type = "message", duration = 5)
-
-        }, error = function(e) {
-          removeNotification(id = "deg_running")
-          showNotification(paste("Error:", e$message), type = "error", duration = 10)
-        })
       }
     })
 
@@ -5113,9 +5474,10 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
     output$deg_direction <- renderText({
       req(deg_results())
-      paste0(deg_sideA_label(), " vs ", deg_sideB_label(),
+      paste0("Top DEGs — ", deg_sideA_label(), " vs ", deg_sideB_label(),
              "  ·  positive log2FC = higher in ", deg_sideA_label())
     })
+    outputOptions(output, "deg_direction", suspendWhenHidden = FALSE)
 
     output$deg_table <- renderTable({
       deg <- deg_results()
@@ -5158,8 +5520,9 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     output$deg_volcano <- renderPlot({
       req(deg_results())
       df <- deg_results()
-      fc_thresh  <- if (is.null(input$volcano_log2fc)) 0.25 else input$volcano_log2fc
-      fdr_thresh <- if (is.null(input$volcano_fdr)) 0.05 else input$volcano_fdr
+      run_meta <- deg_run_meta()
+      fc_thresh  <- if (is.null(run_meta$logfc)) 0.25 else run_meta$logfc
+      fdr_thresh <- if (is.null(run_meta$fdr)) 0.05 else run_meta$fdr
 
       df$color <- dplyr::case_when(
         df$p_val_adj < fdr_thresh & df$avg_log2FC >  fc_thresh ~ "Up",
@@ -5172,19 +5535,21 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       top_down <- head(df[df$color == "Down", ][order( df[df$color == "Down", ]$avg_log2FC), ], 8)
       df$label <- ifelse(df$gene %in% c(top_up$gene, top_down$gene), df$gene, NA)
 
-      p <- ggplot(df, aes(x = avg_log2FC, y = -log10(p_val_adj), color = color)) +
+      df$plot_fdr <- pmax(df$p_val_adj, .Machine$double.xmin)
+      p <- ggplot(df, aes(x = avg_log2FC, y = -log10(plot_fdr), color = color)) +
         geom_point(aes(alpha = ifelse(color == "NS", 0.3, 0.7)), size = 2.5, show.legend = FALSE) +
         scale_alpha_identity()  +
         scale_color_manual(values = c("Up" = "#8B0000", "Down" = "#4472C4", "NS" = "grey70")) +
-        geom_hline(yintercept = -log10(input$volcano_fdr), linetype = "dashed", linewidth = 0.5) +
+        geom_hline(yintercept = -log10(fdr_thresh), linetype = "dashed", linewidth = 0.5) +
         geom_vline(xintercept = c(-fc_thresh, fc_thresh), linetype = "dashed", linewidth = 0.5) +
         ggrepel::geom_text_repel(aes(label = label), size = 3, max.overlaps = 15, box.padding = 0.5,
                                   na.rm = TRUE, color = "black") +
         theme_classic(base_size = 13) +
         labs(x = paste0("log2 Fold Change  (→ higher in ", deg_sideA_label(), ")"),
              y = "-log10(FDR)",
-             title = "Differential Expression",
-             subtitle = paste0(deg_sideA_label(), "  vs  ", deg_sideB_label()),
+             title = "Filtered Differential Expression",
+             subtitle = paste0(deg_sideA_label(), "  vs  ", deg_sideB_label(),
+                               " (FDR < ", fdr_thresh, ", |log2FC| ≥ ", fc_thresh, ")"),
              color = "") +
         theme(legend.position = "top",
               plot.title = element_text(hjust = 0.5, face = "bold"),
@@ -5199,20 +5564,29 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       req(deg_results())
       df <- deg_results()
       if (!"Moran_I" %in% colnames(df)) {
+        deg_moran_rv(NULL)
         plot.new()
-        text(0.5, 0.5, "Moran's I not available for this comparison.", 
-            cex = 1.2, col = "grey50")
+        note <- deg_moran_note()
+        msg <- if (is.null(note)) "Moran's I not available for this comparison." else note
+        text(0.5, 0.5, paste(strwrap(msg, 48), collapse = "\n"), cex = 1.05, col = "grey40")
         return()
       }
       
       df <- df[!is.na(df$Moran_I) & !is.na(df$Moran_padj), ]
+      df$plot_padj <- pmax(df$Moran_padj, .Machine$double.xmin)
       
       df$spatial_class <- factor(
         df$spatial_class,
         levels = c("Not structured", "Weakly structured", "Spatially structured")
       )
 
-      ggplot(df, aes(x = Moran_I, y = -log10(Moran_padj), color = spatial_class)) +
+      label_df <- subset(df, spatial_class == "Spatially structured")
+      if (nrow(label_df) > 15) {
+        label_df <- label_df[order(-label_df$Moran_I, label_df$Moran_padj), , drop = FALSE]
+        label_df <- head(label_df, 15)
+      }
+
+      p <- ggplot(df, aes(x = Moran_I, y = -log10(plot_padj), color = spatial_class)) +
         geom_point(alpha = 0.7, size = 2.5) +
         scale_color_manual(values = c(
           "Spatially structured" = "#E41A1C",
@@ -5222,15 +5596,28 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         geom_vline(xintercept = 0.3, linetype = "dashed", linewidth = 0.7) +   # ← Moran threshold
         geom_hline(yintercept = -log10(0.05), linetype = "dashed", linewidth = 0.7) + # ← padj threshold
         ggrepel::geom_text_repel(
-          data = subset(df, spatial_class == "Spatially structured"),
+          data = label_df,
           aes(label = gene), size = 3, max.overlaps = 15,
           color = "black", na.rm = TRUE
         ) +
         theme_classic(base_size = 13) +
         labs(x = "Moran's I", y = "-log10(adj. p-value)",
-            title = "Spatially Variable DEGs", color = "") +
+            title = "Spatially Variable DEGs",
+            subtitle = {
+              sc <- deg_moran_scope()
+              rule <- "structured = FDR < 0.05 and I > 0.3; one-sided test within Side A"
+              if (is.null(sc) || sc$total <= sc$cap) rule
+              else paste0("top ", sc$tested, " of ", format(sc$total, big.mark = ","),
+                          " DEGs by |log2FC|  \u00b7  ", rule)
+            },
+            color = "") +
         theme(legend.position = "top",
-              plot.title = element_text(hjust = 0.5, face = "bold"))
+              legend.text = element_text(size = 10),
+              plot.title = element_text(hjust = 0.5, face = "bold"),
+              plot.subtitle = element_text(hjust = 0.5, size = 8.5, colour = "grey35"))
+
+      deg_moran_rv(p)
+      p
     }, height = 400)
 
     # Violin plot
@@ -5274,6 +5661,20 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       if (!v_vs_rest && length(g2) == 0) {
         showNotification("Side B is empty — pick a non-empty ROI/group, or 'Rest of tissue'.", type = "error"); return()
       }
+      if (!v_vs_rest) {
+        shared_spots <- intersect(g1, g2)
+        if (length(shared_spots) > 0) {
+          if (setequal(g1, g2)) {
+            showNotification("Both sides contain exactly the same spots — nothing to compare.",
+                             type = "error"); return()
+          }
+          vA <- paste0(vA, " (", length(shared_spots), " shared)")
+          vB <- paste0(vB, " (", length(shared_spots), " shared)")
+          showNotification(paste0(length(shared_spots),
+            " spot(s) are in both sides and were kept. The two sets are not independent, ",
+            "so treat the test as descriptive."), type = "warning", duration = 8)
+        }
+      }
 
       tryCatch({
         if (input$violin_feature_type == "gene") {
@@ -5289,6 +5690,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         } else if (input$violin_feature_type == "pathway") {
           genes <- current_hallmark_library()[[feature]]$genes
           genes_in_data <- intersect(genes, rownames(seurat_obj))
+          if (length(genes_in_data) == 0) stop("No genes from this pathway are present in the active assay.")
           expr_data <- FetchData(seurat_obj, vars = genes_in_data, layer = "data")
           all_values <- data.frame(value = rowMeans(expr_data, na.rm = TRUE))
           colnames(all_values) <- feature
@@ -5297,6 +5699,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         } else if (input$violin_feature_type == "cellsig") {
           genes <- cellmarker_db[[feature]]
           genes_in_data <- intersect(genes, rownames(seurat_obj))
+          if (length(genes_in_data) == 0) stop("No genes from this cell signature are present in the active assay.")
           expr_data <- FetchData(seurat_obj, vars = genes_in_data, layer = "data")
           all_values <- data.frame(value = rowMeans(expr_data, na.rm = TRUE))
           colnames(all_values) <- feature
@@ -5321,11 +5724,15 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           group_label[g1] <- vA
         }
 
-        valid_cells <- intersect(cells_to_plot, rownames(all_values))
+        # A spot shared by both sides must contribute one row to EACH side.
+        # intersect() de-duplicates and a named lookup keeps only the first
+        # match, so both would silently drop the overlap from Side B.
+        keep <- cells_to_plot %in% rownames(all_values)
+        valid_cells <- cells_to_plot[keep]
 
         plot_data <- data.frame(
           value = all_values[valid_cells, 1],
-          group = factor(group_label[valid_cells])
+          group = factor(unname(group_label)[keep])
         )
 
         plot_data$is_numeric <- is_numeric_data
@@ -5410,7 +5817,6 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
         fill_cols[non_rest] <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3")[seq_along(non_rest)]
         p_violin <- p_violin + scale_fill_manual(values = fill_cols)
 
-        last_group_plot(p_violin)   # ← THIS is what was missing
         violin_rv(p_violin)         # capture for figure download (R3 #5)
         print(p_violin)
       }
@@ -5698,7 +6104,6 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
                   plot.title = element_text(hjust = 0.5, face = "bold"),
                   plot.subtitle = element_text(hjust = 0.5)) +
             scale_fill_manual(values = c("#17BECF", "#1F77B4"))  # Teal and blue
-          last_group_plot(p1)
           print(p1)
           
 
@@ -5709,7 +6114,6 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
             labs(title = "Feature Comparison", x = "", y = "Value") +
             theme_classic() +
             theme(legend.position = "none")
-            last_group_plot(p) 
           print(p)
         }
       }
@@ -5755,7 +6159,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
       }
     )
 
-    output$dl_compare_plot_group <- downloadHandler(
+    output$dl_violin_plot <- downloadHandler(
 
       filename = function() {
         pd <- violin_data()
@@ -5770,10 +6174,12 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           "feature"
         )
         feature <- gsub("[^A-Za-z0-9_]", "", feature)
-        paste0("group_comparison_", grp, "_", feature, ".pdf")
+        paste0("violin_", grp, "_", feature, ".pdf")
       },
       content = function(file) {
-        p <- last_group_plot()
+        # violin_rv is written only by the violin panel, so this cannot pick up
+        # the Feature-vs-Feature figure the way the shared slot used to.
+        p <- violin_rv()
         req(p)
         ggsave(file, plot = p, device = "pdf", width = 6, height = 5)
       }
@@ -5792,82 +6198,676 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
     })
 
     # Download handlers for groups
-    output$dl_group1 <- downloadHandler(
+
+
+    # ── Clear the map overlay ─────────────────────────────────────────────────
+    # update_map_colors() already paints plain spots when current_values() is
+    # NULL, so resetting the feature selectors and the value store is enough to
+    # get back to a bare H&E without having to pick some other feature.
+    observeEvent(input$clear_map_overlay, {
+      updateSelectInput(session, "feature_type", selected = "None")
+      updateSelectInput(session, "gene_select",  selected = "")
+      updateSelectInput(session, "meta_select",  selected = "")
+      updateSelectInput(session, "pathway_library", selected = "None")
+      current_values(NULL)
+      is_categorical(FALSE)
+      showing_gene_set(FALSE)
+      update_map_colors()
+      showNotification("Map overlay cleared.", type = "message", duration = 3)
+    })
+
+    # ── Export the region selected in "Show on map:" as a Seurat subset ───────
+    # Restores the per-group .rds export the fixed two-group layout used to
+    # offer, but for any named ROI or group.
+    export_region_spots <- function() {
+      key <- isolate(input$roi_show_filter)
+      if (is.null(key) || identical(key, "__all__")) {
+        rr <- isolate(rois())
+        unique(unlist(lapply(rr, function(x) x$spots), use.names = FALSE))
+      } else {
+        isolate(region_spots(key))
+      }
+    }
+    export_region_name <- function() {
+      key <- isolate(input$roi_show_filter)
+      if (is.null(key) || identical(key, "__all__")) "all_ROIs" else region_label(key)
+    }
+
+    # Tell the user what "Download Region" will actually export.
+    output$export_region_note <- renderText({
+      key <- input$roi_show_filter
+      n_rois <- length(rois())
+      if (n_rois == 0) return("No ROIs saved yet — draw and save a region first.")
+      n <- if (is.null(key) || identical(key, "__all__")) {
+        length(unique(unlist(lapply(rois(), function(x) x$spots), use.names = FALSE)))
+      } else length(region_spots(key))
+      what <- if (is.null(key) || identical(key, "__all__")) "all saved ROIs combined"
+              else paste0("\u201c", region_label(key), "\u201d")
+      msg <- paste0("Will export ", what, " (", n, " spots).")
+      # The .csv is spots x genes, so a large region makes a large file.
+      if (n > 400) msg <- paste0(msg, " The expression table will be large.")
+      msg
+    })
+    outputOptions(output, "export_region_note", suspendWhenHidden = FALSE)
+
+    output$dl_region_seurat <- downloadHandler(
       filename = function() {
-        paste0(current_sample_name(), "_group1_spots_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".txt")
+        paste0(current_sample_name(), "_",
+               gsub("[^A-Za-z0-9_-]+", "_", export_region_name()), "_subset_",
+               format(Sys.time(), "%Y%m%d_%H%M%S"), ".rds")
       },
       content = function(file) {
-        g1 <- isolate(output_group1())
-        print(paste("Downloading", length(g1), "Group 1 spots"))
-
-        if (length(g1) > 0) {
-          writeLines(g1, file)
-        } else {
-          writeLines("No spots in Group 1", file)
+        sp <- export_region_spots()
+        if (length(sp) == 0) {
+          showNotification("Nothing to export — save an ROI first.", type = "warning", duration = 5)
+          return()
         }
-      },
-      contentType = "text/plain"
-    )
-
-    output$dl_group2 <- downloadHandler(
-      filename = function() {
-        paste0(current_sample_name(), "_group2_spots_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".txt")
-      },
-      content = function(file) {
-        g2 <- isolate(output_group2())
-        print(paste("Downloading", length(g2), "Group 2 spots"))
-
-        if (length(g2) > 0) {
-          writeLines(g2, file)
-        } else {
-          writeLines("No spots in Group 2", file)
-        }
-      },
-      contentType = "text/plain"
-    )
-
-    output$dl_seurat_group1 <- downloadHandler(
-      filename = function() {
-        paste0(current_sample_name(), "_group1_subset_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".rds")
-      },
-      content = function(file) {
-        g1 <- isolate(output_group1())
-        print(paste("Downloading Group 1 Seurat subset with", length(g1), "spots"))
-
-        if (length(g1) > 0) {
-          subset_obj <- subset(seurat_obj, cells = g1)
-          saveRDS(subset_obj, file)
-        } else {
-          showNotification("No spots in Group 1!", type = "warning", duration = 5)
-        }
+        saveRDS(subset(seurat_obj, cells = sp), file)
       },
       contentType = "application/octet-stream"
     )
 
-    output$dl_seurat_group2 <- downloadHandler(
-      filename = function() {
-        paste0(current_sample_name(), "_group2_subset_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".rds")
-      },
-      content = function(file) {
-        g2 <- isolate(output_group2())
-        print(paste("Downloading Group 2 Seurat subset with", length(g2), "spots"))
+    # ══════════════════════════════════════════════════════════════════════════
+    # Multi-Sample comparison (Reviewer 1, item 1)
+    #
+    # Uploaded ROI DEG tables may already be threshold-filtered. Comparisons are
+    # descriptive because an absent gene may be filtered rather than unchanged.
+    # Nothing here removes batch effects or pools raw expression matrices.
+    # ══════════════════════════════════════════════════════════════════════════
+    ms_sigs      <- reactiveVal(list())   # key -> uploaded DEG table
+    ms_gene_rv   <- reactiveVal(NULL)
+    ms_path_rv   <- reactiveVal(NULL)
 
-        if (length(g2) > 0) {
-          subset_obj <- subset(seurat_obj, cells = g2)
-          saveRDS(subset_obj, file)
-        } else {
-          showNotification("No spots in Group 2!", type = "warning", duration = 5)
-        }
-      },
-      contentType = "application/octet-stream"
+    # Flexible import: a gene identifier and an effect size are sufficient for
+    # descriptive comparison. Provenance and significance columns add context,
+    # but older SpatialROI exports and user-generated DEG tables remain usable.
+    MS_CORE <- c("gene", "avg_log2FC")
+    MS_ALIASES <- list(
+      gene = c("gene", "genes", "symbol", "gene_symbol", "names"),
+      avg_log2FC = c("avg_log2fc", "avg_logfc", "log2fc", "logfc",
+                     "logfoldchange", "logfoldchanges"),
+      p_val = c("p_val", "pvalue", "p_value", "pvals", "pval"),
+      p_val_adj = c("p_val_adj", "padj", "p_adj", "fdr", "qvalue", "pvals_adj")
     )
 
+    # One loader for both the file picker and the bundled example tables.
+    ms_load_tables <- function(files) {
+      if (is.null(files) || nrow(files) == 0) return(invisible(NULL))
+      n_filtered <- 0L
+      cur <- ms_sigs(); added <- 0; problems <- character(0); cautions <- character(0)
+      notes <- character(0)   # informational only; not a data-quality caution
+      for (i in seq_len(nrow(files))) {
+        nm <- files$name[i]
+        d <- tryCatch(utils::read.csv(files$datapath[i], stringsAsFactors = FALSE),
+                      error = function(e) NULL)
+        if (is.null(d)) { problems <- c(problems, paste0(nm, ": not readable as CSV")); next }
+        lower_names <- tolower(colnames(d))
+        for (canonical in names(MS_ALIASES)) {
+          if (canonical %in% colnames(d)) next
+          hit <- match(MS_ALIASES[[canonical]], lower_names, nomatch = 0L)
+          hit <- hit[hit > 0L]
+          if (length(hit) > 0) colnames(d)[hit[1]] <- canonical
+        }
+        miss <- setdiff(MS_CORE, colnames(d))
+        if (length(miss) > 0) {
+          problems <- c(problems, paste0(nm,
+            ": needs a gene column and a log-fold-change column. Missing: ",
+            paste(miss, collapse = ", ")))
+          next
+        }
+
+        stem <- tools::file_path_sans_ext(basename(nm))
+        defaults <- list(
+          sample = stem, roi = stem, reference = "unspecified", test = "unspecified",
+          expression_assay = "unspecified", logfc_cutoff = 0.25, fdr_cutoff = NA_real_,
+          min_pct = NA_real_,
+          complete_gene_table = FALSE, analysis_format_version = NA_integer_
+        )
+        for (cc in names(defaults)) if (!cc %in% colnames(d)) d[[cc]] <- defaults[[cc]]
+        if (!"p_val" %in% colnames(d)) d$p_val <- NA_real_
+        padj_was_missing <- !"p_val_adj" %in% colnames(d)
+        if (padj_was_missing) d$p_val_adj <- NA_real_
+        if (!"n_spots_roi" %in% colnames(d))  d$n_spots_roi  <- NA_integer_
+        if (!"n_spots_rest" %in% colnames(d)) d$n_spots_rest <- NA_integer_
+
+        one_value <- function(col) unique(trimws(as.character(d[[col]][!is.na(d[[col]])])))
+        singleton_fields <- c("sample", "roi", "reference", "test", "expression_assay")
+        bad_single <- singleton_fields[vapply(singleton_fields, function(cc) {
+          v <- one_value(cc); length(v) != 1 || !nzchar(v[1])
+        }, logical(1))]
+        if (length(bad_single) > 0) {
+          problems <- c(problems, paste0(nm, ": inconsistent or empty metadata: ",
+                                         paste(bad_single, collapse = ", ")))
+          next
+        }
+
+        complete_flag <- toupper(one_value("complete_gene_table")[1])
+        d$.complete_for_enrichment <- identical(complete_flag, "TRUE")
+        # Counted, not narrated: a per-file sentence produced a wall of near
+        # identical text. The standing note under the section title carries the
+        # interpretation caveat instead.
+        if (is.na(complete_flag) || !identical(complete_flag, "TRUE"))
+          n_filtered <- n_filtered + 1L
+
+        if (padj_was_missing) {
+          raw_p <- suppressWarnings(as.numeric(d$p_val))
+          if (isTRUE(d$.complete_for_enrichment[1]) && any(is.finite(raw_p))) {
+            d$p_val_adj <- stats::p.adjust(raw_p, method = "BH")
+            cautions <- c(cautions, paste0(nm,
+              ": adjusted p-values were not supplied; BH values were calculated across the confirmed complete tested-gene table."))
+          } else {
+            cautions <- c(cautions, paste0(nm,
+              ": adjusted p-values were not supplied. They were not reconstructed from an incomplete or unconfirmed table; significance-based summaries will be unavailable."))
+          }
+        }
+
+        numeric_cols <- c("avg_log2FC", "p_val", "p_val_adj")
+        for (cc in numeric_cols) d[[cc]] <- suppressWarnings(as.numeric(d[[cc]]))
+        bad_p <- (!is.na(d$p_val) & (!is.finite(d$p_val) | d$p_val < 0 | d$p_val > 1)) |
+                 (!is.na(d$p_val_adj) & (!is.finite(d$p_val_adj) | d$p_val_adj < 0 | d$p_val_adj > 1))
+        if (any(!is.finite(d$avg_log2FC)) || any(bad_p) || anyDuplicated(d$gene) > 0 ||
+            any(is.na(d$gene) | !nzchar(trimws(d$gene)))) {
+          problems <- c(problems, paste0(nm,
+            ": invalid gene-level values (genes must be unique; log-fold changes must be numeric; supplied p-values must lie between 0 and 1)."))
+          next
+        }
+
+        # Reference provenance is recommended, not a hard gate for custom files.
+        ref <- one_value("reference")[1]
+        if (is.na(ref) || identical(tolower(ref), "unspecified") ||
+            !grepl("^rest", trimws(tolower(ref))))
+          cautions <- c(cautions, paste0(nm,
+            ": ROI-versus-rest provenance was not confirmed; interpret cross-file comparisons descriptively."))
+
+        # Harmonized settings are preferred, but custom files are still loaded.
+        # Two different problems used to share one alarming message. Differing
+        # THRESHOLDS genuinely bias the comparison, because a gene missing from
+        # the stricter table cannot be read as unchanged. A differing assay or
+        # test does not: on the bundled section, the same ROI scored through SCT
+        # and LogNormalize gave log2FC correlated at r = 0.98 with matching
+        # magnitudes, so that case is now a quiet note rather than a caution.
+        if (length(cur) > 0) {
+          differs <- function(cc) {
+            av <- trimws(as.character(d[[cc]][1])); bv <- trimws(as.character(cur[[1]][[cc]][1]))
+            !is.na(av) && !is.na(bv) && !av %in% c("", "unspecified") &&
+              !bv %in% c("", "unspecified") && !identical(av, bv)
+          }
+          thr <- c("logfc_cutoff", "fdr_cutoff", "min_pct")
+          thr <- thr[vapply(thr, differs, logical(1))]
+          if (length(thr) > 0)
+            cautions <- c(cautions, paste0(nm, ": thresholds differ from loaded tables (",
+              paste(thr, collapse = ", "),
+              "). A gene absent from the stricter table cannot be treated as unchanged, so shared-gene and enrichment summaries are biased toward the stricter file."))
+
+          pipe <- c("test", "expression_assay")
+          pipe <- pipe[vapply(pipe, differs, logical(1))]
+          if (length(pipe) > 0)
+            notes <- c(notes, paste0(nm, ": ", paste(pipe, collapse = " and "),
+              " differs from the loaded tables. Effect sizes stay on a comparable scale; direction and ranking are unaffected."))
+        }
+
+        # Excel rewrites symbols like SEPT2 as dates; catch it rather than
+        # silently analysing corrupted gene names.
+        datey <- grepl("^[0-9]{1,2}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$",
+                       d$gene, ignore.case = TRUE)
+        if (any(datey)) {
+          problems <- c(problems, paste0(nm, ": ", sum(datey),
+                        " gene name(s) look like dates — this file was re-saved in Excel"))
+          next
+        }
+        base_key <- paste0(d$sample[1], " · ", d$roi[1])
+        # Repeated sample/ROI labels are valid (for example, reruns or alternate
+        # DEG settings). Give every uploaded table a unique display key instead
+        # of rejecting it.
+        d$.key <- tail(make.unique(c(names(cur), base_key), sep = " #"), 1)
+        cur[[d$.key[1]]] <- d
+        added <- added + 1
+      }
+      ms_sigs(cur)
+      if (length(problems) > 0)
+        showNotification(paste(problems, collapse = "\n"), type = "error", duration = 14)
+      if (length(cautions) > 0)
+        showNotification(paste(unique(cautions), collapse = "\n"), type = "warning", duration = 14)
+      if (length(notes) > 0)
+        showNotification(paste(unique(notes), collapse = "\n"), type = "message", duration = 8)
+      if (added > 0) showNotification(paste0("Loaded ", added,
+        " ROI DEG table(s)."), type = "message")
+
+      # A shared gene vocabulary is a precondition, not a caveat. Without it the
+      # comparison panels are empty and the reason is invisible, so say it here
+      # and name the usual causes rather than leaving the user to guess.
+      sg <- ms_sigs()
+      if (length(sg) >= 2) {
+        common_n <- length(Reduce(intersect, lapply(sg, function(d) as.character(d$gene))))
+        if (common_n == 0) {
+          pairwise_max <- 0L
+          if (length(sg) > 2) {
+            for (i in seq_along(sg)) for (j in seq_along(sg)) if (j > i)
+              pairwise_max <- max(pairwise_max,
+                length(intersect(as.character(sg[[i]]$gene), as.character(sg[[j]]$gene))))
+          }
+          showNotification(
+            paste0("No gene is present in all ", length(sg), " uploaded tables",
+                   if (length(sg) > 2) paste0(" (largest overlap between any two tables: ",
+                                              pairwise_max, " genes)") else "",
+                   ", so the similarity, shared-gene and pathway panels cannot be computed. ",
+                   "The usual causes are gene identifiers from different species (for example ",
+                   "human MS4A1 versus mouse Ms4a1), different annotations such as symbols ",
+                   "versus Ensembl IDs, or heavily filtered tables with few genes each. ",
+                   "Check that every table uses the same organism and identifier type."),
+            type = "error", duration = NULL, id = "ms_no_common_genes")
+        } else removeNotification(id = "ms_no_common_genes")
+      } else removeNotification(id = "ms_no_common_genes")
+
+      if (n_filtered > 0)
+        showNotification(paste0(n_filtered, " of ", added,
+          " table(s) are threshold-filtered; results are descriptive."),
+          type = "warning", duration = 8)
+      invisible(NULL)
+    }
+
+    observeEvent(input$ms_upload, {
+      req(input$ms_upload)
+      ms_load_tables(data.frame(name = input$ms_upload$name,
+                                datapath = input$ms_upload$datapath,
+                                stringsAsFactors = FALSE))
+    })
+
+    # Bundled ROI-versus-rest tables so the module can be tried without
+    # first drawing and exporting three of your own.
+    observeEvent(input$ms_load_examples, {
+      dir <- system.file("extdata", "example_deg_tables", package = "SpatialROI")
+      if (dir == "" || !dir.exists(dir)) dir <- file.path("inst", "extdata", "example_deg_tables")
+      fs <- sort(list.files(dir, pattern = "\\.csv$", full.names = TRUE))
+      if (length(fs) == 0) {
+        showNotification("Bundled example tables were not found in this installation.",
+                         type = "error"); return()
+      }
+      ms_sigs(list()); ms_gene_rv(NULL); ms_path_rv(NULL)
+      ms_load_tables(data.frame(name = basename(fs), datapath = fs,
+                                stringsAsFactors = FALSE))
+    })
+
+    observeEvent(input$ms_clear, {
+      ms_sigs(list()); ms_gene_rv(NULL); ms_path_rv(NULL)
+    })
+
+    output$ms_ready <- reactive({ length(ms_sigs()) >= 2 })
+    outputOptions(output, "ms_ready", suspendWhenHidden = FALSE)
+
+    output$ms_status <- renderText({
+      sg <- ms_sigs(); if (length(sg) == 0) return("No DEG tables loaded yet.")
+      n <- length(sg)
+      if (n < 2) paste0("1 valid ROI loaded. Add at least one more ROI table.")
+      else {
+        common_n <- length(Reduce(intersect, lapply(sg, function(d) as.character(d$gene))))
+        paste0(n, " ROI tables loaded; ", format(common_n, big.mark = ","),
+               " genes were reported in every ROI table.")
+      }
+    })
+    outputOptions(output, "ms_status", suspendWhenHidden = FALSE)
+
+    output$ms_table <- renderTable({
+      sg <- ms_sigs(); if (length(sg) == 0) return(NULL)
+      data.frame(
+        Sample     = vapply(sg, function(d) d$sample[1], character(1)),
+        Region     = vapply(sg, function(d) d$roi[1], character(1)),
+        Spots      = vapply(sg, function(d) suppressWarnings(as.integer(d$n_spots_roi[1])), integer(1)),
+        Genes      = vapply(sg, nrow, integer(1)),
+        Up         = vapply(sg, function(d) sum(d$avg_log2FC > 0, na.rm = TRUE), integer(1)),
+        Down       = vapply(sg, function(d) sum(d$avg_log2FC < 0, na.rm = TRUE), integer(1)),
+        # The exported column is fdr_cutoff; the loader defaults it to NA when a
+        # file does not record one, so a blank cell means "not stated", not 0.
+        FDR_cutoff = vapply(sg, function(d) {
+          v <- suppressWarnings(as.numeric(d[["fdr_cutoff"]][1]))
+          if (length(v) == 0 || is.na(v)) "not stated" else format(v, trim = TRUE)
+        }, character(1)),
+        row.names = NULL, stringsAsFactors = FALSE)
+    }, rownames = FALSE)
+
+
+
+
+    # Every row of an uploaded table is a gene that already passed the DEG
+    # thresholds chosen when it was exported. The module therefore reports what
+    # each file contains rather than applying a second, different cut-off; the
+    # loader flags files whose recorded settings disagree.
+    ms_sig_genes <- function(d, dir = "both") {
+      if (identical(dir, "both")) return(d$gene)
+      ok <- switch(dir, up = d$avg_log2FC > 0, down = d$avg_log2FC < 0, rep(TRUE, nrow(d)))
+      ok[is.na(ok)] <- FALSE
+      d$gene[ok]
+    }
+
+    # Descriptive summaries use only genes reported in every filtered ROI table.
+    # An absent gene is never imputed as nonsignificant.
+    ms_common_genes <- reactive({
+      sg <- ms_sigs()
+      if (length(sg) < 2) return(character(0))
+      Reduce(intersect, lapply(sg, function(d) as.character(d$gene)))
+    })
+
+    # ── 2. Pairwise concordance ───────────────────────────────────────────────
+    ms_concordance_df <- reactive({
+      sg <- ms_sigs(); if (length(sg) < 2) return(NULL)
+      ks <- names(sg); rows <- list()
+      for (i in seq_along(ks)) for (j in seq_along(ks)) {
+        if (j <= i) next
+        A <- sg[[ks[i]]]; B <- sg[[ks[j]]]
+        shared <- intersect(A$gene, B$gene)
+        if (length(shared) < 10) next
+        a <- A[match(shared, A$gene), ]; b <- B[match(shared, B$gene), ]
+        both <- shared
+        agree <- if (length(both) > 0) {
+          fa <- A$avg_log2FC[match(both, A$gene)]; fb <- B$avg_log2FC[match(both, B$gene)]
+          sum(sign(fa) == sign(fb))
+        } else 0L
+        r <- suppressWarnings(stats::cor(a$avg_log2FC, b$avg_log2FC, method = "spearman",
+                                         use = "complete.obs"))
+        # Three metrics only: the raw counts behind them were three views of the
+        # same thing, and the percentage is the one worth reading.
+        rows[[length(rows) + 1]] <- data.frame(
+          Region_A = ks[i], Region_B = ks[j],
+          Shared_genes = length(both),
+          Same_direction_pct = if (length(both) > 0) round(100 * agree / length(both), 1) else NA_real_,
+          logFC_correlation = round(r, 3),
+          stringsAsFactors = FALSE)
+      }
+      if (length(rows) == 0) return(data.frame())
+      do.call(rbind, rows)
+    })
+
+    output$ms_concordance <- renderTable({
+      df <- ms_concordance_df()
+      if (is.null(df)) return(data.frame(Message = "Load at least two regions."))
+      if (nrow(df) == 0) return(data.frame(Message = "Too few shared genes between these regions."))
+      df
+    }, rownames = FALSE)
+
+    # A concrete, numeric version of the caveat above. With many tables the
+    # all-tables intersection collapses long before any single pair does, and a
+    # nearly empty heatmap reads as a bug unless the arithmetic is spelled out.
+    # The all-tables intersection collapses long before any single pair does, so
+    # state the arithmetic. Facts only — no instructions.
+    output$ms_overlap_note <- renderUI({
+      sg <- ms_sigs(); if (length(sg) < 2) return(NULL)
+      n_tab  <- length(sg)
+      common <- length(ms_common_genes())
+      sizes  <- vapply(sg, nrow, integer(1))
+      ks <- names(sg); ov <- integer(0)
+      for (i in seq_along(ks)) for (j in seq_along(ks)) if (j > i)
+        ov <- c(ov, length(intersect(as.character(sg[[ks[i]]]$gene),
+                                     as.character(sg[[ks[j]]]$gene))))
+      fmt <- function(x) format(x, big.mark = ",")
+      tight <- common < 10 || (length(ov) > 0 && common < 0.2 * stats::median(ov))
+      tags$p(style = sprintf(
+          "font-size:12.5px; margin:4px 0 10px 0; padding:8px 11px; border-left:4px solid %s; background:%s; color:%s;",
+          if (tight) "#e74c3c" else "#b9ddc8",
+          if (tight) "#fdecea" else "#eef7f2",
+          if (tight) "#7b241c" else "#33604a"),
+        sprintf("%d tables uploaded; %s genes shared across all %s. Individual tables report %s–%s genes; a typical pair shares %s genes.",
+                n_tab, fmt(common),
+                if (n_tab == 2) "two" else if (n_tab == 3) "three" else paste(n_tab, "of them"),
+                fmt(min(sizes)), fmt(max(sizes)), fmt(round(stats::median(ov)))))
+    })
+
+    output$ms_dl_concordance <- downloadHandler(
+      filename = function() paste0("region_concordance_", format(Sys.time(), "%Y%m%d"), ".csv"),
+      content = function(f) { df <- ms_concordance_df(); req(!is.null(df)); write.csv(df, f, row.names = FALSE) })
+
+    # ── 4. Descriptive shared-gene patterns ───────────────────────────────────
+    # No p-values are combined. This makes the same summaries usable for
+    # independent subjects and for dependent ROIs/samples from one patient.
+    ms_consensus_df <- reactive({
+      sg <- ms_sigs(); if (length(sg) == 0) return(NULL)
+      common <- ms_common_genes()
+      if (length(sg) < 2 || length(common) == 0) return(data.frame())
+      all <- do.call(rbind, lapply(names(sg), function(k) {
+        d <- sg[[k]][sg[[k]]$gene %in% common, , drop = FALSE]
+        data.frame(key = k, gene = d$gene, lfc = d$avg_log2FC,
+                   padj = d$p_val_adj,
+                   stringsAsFactors = FALSE)
+      }))
+
+      N <- length(sg)
+      sp <- split(all, all$gene)
+      sp <- sp[vapply(sp, nrow, integer(1)) == N]
+      if (length(sp) == 0) return(data.frame())
+
+      mlfc <- vapply(sp, function(x) mean(x$lfc), numeric(1))
+      med  <- vapply(sp, function(x) stats::median(x$lfc), numeric(1))
+      lo   <- vapply(sp, function(x) min(x$lfc), numeric(1))
+      hi   <- vapply(sp, function(x) max(x$lfc), numeric(1))
+      same <- vapply(sp, function(x) max(sum(x$lfc > 0), sum(x$lfc < 0)), integer(1))
+
+      # No "Significant_in" column. Every gene here is reported in every table by
+      # construction, so the count was always N / N — the same vacuous statistic
+      # the removed second FDR filter used to produce, and a no-op as a sort key.
+      out <- data.frame(Gene = names(sp), Mean_log2FC = round(mlfc, 3),
+                        Median_log2FC = round(med, 3),
+                        Min_log2FC = round(lo, 3), Max_log2FC = round(hi, 3),
+                        Same_direction = paste0(same, " / ", N),
+                        Same_direction_pct = round(100 * same / N, 1),
+                        row.names = NULL, stringsAsFactors = FALSE)
+      out[order(-out$Same_direction_pct, -abs(out$Mean_log2FC)), ]
+    })
+
+    output$ms_consensus <- renderTable({
+      df <- ms_consensus_df()
+      if (is.null(df)) return(NULL)
+      if (nrow(df) == 0) return(data.frame(Message = "No genes were tested in every uploaded ROI."))
+      d <- head(df, 200)
+      d[, c("Gene", "Mean_log2FC", "Median_log2FC", "Same_direction",
+            "Min_log2FC", "Max_log2FC"), drop = FALSE]
+    }, rownames = FALSE)
+
+    output$ms_dl_consensus <- downloadHandler(
+      filename = function() paste0("shared_gene_patterns_", format(Sys.time(), "%Y%m%d"), ".csv"),
+      content = function(f) { df <- ms_consensus_df(); req(!is.null(df)); write.csv(df, f, row.names = FALSE) })
+
+    # ── 5. Disagreement ───────────────────────────────────────────────────────
+    ms_disagree_df <- reactive({
+      sg <- ms_sigs(); if (length(sg) < 2) return(NULL)
+      common <- ms_common_genes()
+      all <- do.call(rbind, lapply(names(sg), function(k) {
+        d <- sg[[k]][sg[[k]]$gene %in% common, , drop = FALSE]
+        data.frame(key = k, gene = d$gene, lfc = d$avg_log2FC, padj = d$p_val_adj,
+                   stringsAsFactors = FALSE)
+      }))
+      sp <- split(all, all$gene)
+      sp <- sp[vapply(sp, nrow, integer(1)) >= 2]
+      if (length(sp) == 0) return(data.frame())
+      keep <- vapply(sp, function(x) {
+        any(is.finite(x$lfc)) &&
+          any(x$lfc > 0) && any(x$lfc < 0)
+      }, logical(1))
+      sp <- sp[keep]
+      if (length(sp) == 0) return(data.frame())
+      out <- data.frame(
+        Gene    = names(sp),
+        Up_in   = vapply(sp, function(x) paste(x$key[x$lfc > 0], collapse = "; "), character(1)),
+        Down_in = vapply(sp, function(x) paste(x$key[x$lfc < 0], collapse = "; "), character(1)),
+        Max_abs_log2FC = round(vapply(sp, function(x) max(abs(x$lfc)), numeric(1)), 3),
+        Spread_log2FC  = round(vapply(sp, function(x) diff(range(x$lfc)), numeric(1)), 3),
+        row.names = NULL, stringsAsFactors = FALSE)
+      out[order(-out$Spread_log2FC), ]
+    })
+
+    output$ms_disagree <- renderTable({
+      df <- ms_disagree_df()
+      if (is.null(df)) return(data.frame(Message = "Load at least two regions."))
+      if (nrow(df) == 0) return(data.frame(Message = "No genes point in opposite directions — the regions agree."))
+      head(df, 150)
+    }, rownames = FALSE)
+
+    output$ms_dl_disagree <- downloadHandler(
+      filename = function() paste0("disagreeing_genes_", format(Sys.time(), "%Y%m%d"), ".csv"),
+      content = function(f) { df <- ms_disagree_df(); req(!is.null(df)); write.csv(df, f, row.names = FALSE) })
+
+    # ── 3. Gene x region effect-size heatmap ──────────────────────────────────
+    output$ms_gene_heatmap <- renderPlot({
+      cons <- ms_consensus_df(); sg <- ms_sigs()
+      if (is.null(cons) || nrow(cons) == 0) {
+        ms_gene_rv(NULL); plot.new()
+        text(.5, .5, "Load DEG tables to see effect sizes.", cex = 1.2, col = "grey50"); return()
+      }
+      n <- min(nrow(cons), if (is.null(input$ms_n_heat)) 30 else input$ms_n_heat)
+      genes <- head(cons$Gene, n)
+      rows <- list()
+      for (k in names(sg)) {
+        d <- sg[[k]]; idx <- match(genes, d$gene)
+        rows[[k]] <- data.frame(Gene = genes, Region = k, log2FC = d$avg_log2FC[idx],
+                                stringsAsFactors = FALSE)
+      }
+      df <- do.call(rbind, rows)
+      df$Gene <- factor(df$Gene, levels = rev(genes))
+      p <- ggplot(df, aes(x = Region, y = Gene, fill = log2FC)) +
+        geom_tile(colour = "white", linewidth = .3) +
+        scale_fill_gradient2(low = "#4472C4", mid = "white", high = "#8B0000",
+                             midpoint = 0, na.value = "grey88") +
+        labs(x = NULL, y = NULL, fill = "log2FC",
+             title = "Shared and variable genes across ROIs",
+             subtitle = "Only genes reported in every uploaded ROI are shown; filtering may hide concordant genes") +
+        theme_minimal(base_size = 11) +
+        theme(axis.text.x = element_text(angle = 35, hjust = 1),
+              panel.grid = element_blank(),
+              plot.title = element_text(face = "bold", hjust = .5),
+              plot.subtitle = element_text(hjust = .5, size = 9))
+      ms_gene_rv(p); p
+    })
+
+    output$ms_dl_gene_fig <- make_plot_download(ms_gene_rv, "shared_gene_patterns", w = 8, h = 9)
+
+    # ── 6. Hallmark over-representation per region ────────────────────────────
+    # Filtered tables do not provide an assay-specific tested-gene universe.
+    # Use the genes represented in the selected Hallmark library as a fixed
+    # reference background and label the resulting ORA as exploratory.
+    # Which Hallmark library this panel is actually using. There is no species
+    # control here; it follows the Gene Sets panel, so say so on the figure.
+    ms_species_label <- reactive({
+      if (identical(input$species_select, "mouse")) "mouse" else "human"
+    })
+
+    ms_enrichment_df <- reactive({
+      sg <- ms_sigs(); if (length(sg) == 0) return(NULL)
+      lib <- current_hallmark_library(); if (length(lib) == 0) return(NULL)
+      universe <- unique(unlist(lapply(lib, function(x) x$genes), use.names = FALSE))
+      rows <- list()
+      for (k in names(sg)) {
+        d <- sg[[k]]
+        hits     <- intersect(ms_sig_genes(d), universe)
+        if (length(hits) < 5) next
+        n_uni <- length(universe)
+        for (pw in names(lib)) {
+          set <- unique(intersect(lib[[pw]]$genes, universe))
+          if (length(set) < 5) next
+          ov <- length(intersect(hits, set))
+          # hypergeometric: P(X >= ov)
+          pv <- stats::phyper(ov - 1, length(set), n_uni - length(set),
+                              length(hits), lower.tail = FALSE)
+          expct <- length(hits) * length(set) / n_uni
+          rows[[length(rows) + 1]] <- data.frame(
+            Region = k, Pathway = pw, Overlap = ov,
+            Set_size = length(set), Sig_genes = length(hits),
+            Fold_enrichment = round(ifelse(expct > 0, ov / expct, NA_real_), 2),
+            p_value = pv, stringsAsFactors = FALSE)
+        }
+      }
+      if (length(rows) == 0) return(data.frame())
+      out <- do.call(rbind, rows)
+      out$FDR <- stats::ave(out$p_value, out$Region, FUN = function(x) p.adjust(x, method = "BH"))
+      out
+    })
+
+    output$ms_pathway_heatmap <- renderPlot({
+      e <- ms_enrichment_df()
+      if (is.null(e) || nrow(e) == 0) {
+        ms_path_rv(NULL); plot.new()
+        # The Hallmark library follows the species picker in the Gene Sets panel,
+        # which is nowhere near this one. Name it, because a species mismatch is
+        # the usual reason no gene reaches the library at all.
+        text(.5, .5, paste0(
+          "No Hallmark enrichment for these tables.\nThe ",
+          ms_species_label(), " Hallmark library is in use — set the species in\n",
+          "the Gene Sets panel to match your gene symbols."),
+          cex = 1.05, col = "grey50"); return()
+      }
+      nreg <- length(unique(e$Region))
+      e$sig <- e$FDR < 0.05
+      # Rank pathways by how many regions they are enriched in, then by strength.
+      agg <- stats::aggregate(cbind(n_sig = e$sig) ~ Pathway, data = e, FUN = sum)
+      strength <- stats::aggregate(cbind(m = -log10(e$FDR)) ~ Pathway, data = e, FUN = max)
+      agg <- merge(agg, strength, by = "Pathway")
+      agg <- agg[order(-agg$n_sig, -agg$m), ]
+      n <- min(nrow(agg), if (is.null(input$ms_n_path)) 25 else input$ms_n_path)
+      keep <- agg$Pathway[seq_len(n)]
+      d <- e[e$Pathway %in% keep, ]
+      d$Pathway <- factor(d$Pathway, levels = rev(keep))
+      d$score <- -log10(pmax(d$FDR, 1e-300))
+      p <- ggplot(d, aes(x = Region, y = Pathway, fill = score)) +
+        geom_tile(colour = "white", linewidth = .3) +
+        geom_point(data = d[d$sig, ], shape = 8, size = 1.1, colour = "white") +
+        scale_fill_gradient(low = "#F2F5F9", high = "#8B0000") +
+        labs(x = NULL, y = NULL, fill = "-log10 FDR",
+             title = "Hallmark enrichment per region",
+             subtitle = paste0("✳ = FDR < 0.05  ·  ordered by how many of the ",
+                               nreg, " regions are enriched  ·  ",
+                               ms_species_label(), " Hallmark library")) +
+        theme_minimal(base_size = 10) +
+        theme(axis.text.x = element_text(angle = 35, hjust = 1),
+              panel.grid = element_blank(),
+              plot.title = element_text(face = "bold", hjust = .5),
+              plot.subtitle = element_text(hjust = .5, size = 9))
+      ms_path_rv(p); p
+    })
+
+    output$ms_dl_pathway_fig <- make_plot_download(ms_path_rv, "pathway_enrichment", w = 9, h = 9)
+    output$ms_dl_pathway_tbl <- downloadHandler(
+      filename = function() paste0("pathway_enrichment_", format(Sys.time(), "%Y%m%d"), ".csv"),
+      content = function(f) { e <- ms_enrichment_df(); req(!is.null(e)); write.csv(e, f, row.names = FALSE) })
+
+
+
+    deg_export_table <- function() {
+      d <- deg_results()
+      if (is.null(d)) stop("Run a DEG comparison first.")
+      meta <- deg_run_meta()
+      out <- data.frame(
+        gene         = d$gene,
+        avg_log2FC   = round(d$avg_log2FC, 4),
+        p_val        = d$p_val,
+        p_val_adj    = d$p_val_adj,
+        pct_roi      = d$pct.1,
+        pct_rest     = d$pct.2,
+        sample       = current_sample_name(),
+        roi          = deg_sideA_label(),
+        reference    = deg_sideB_label(),
+        test         = if (is.null(meta)) NA_character_ else meta$test,
+        expression_assay = if (is.null(meta)) NA_character_ else meta$assay,
+        logfc_cutoff = if (is.null(meta)) NA_real_ else meta$logfc,
+        fdr_cutoff   = if (is.null(meta)) NA_real_ else meta$fdr,
+        min_pct      = if (is.null(meta)) NA_real_ else meta$minpct,
+        n_spots_roi  = if (is.null(meta)) NA_integer_ else meta$n_a,
+        n_spots_rest = if (is.null(meta)) NA_integer_ else meta$n_b,
+        passes_selected_filters = TRUE,
+        complete_gene_table = FALSE,
+        analysis_format_version = 2L,
+        n_genes_tested = nrow(d),
+        row.names = NULL, stringsAsFactors = FALSE)
+      for (extra in intersect(c("Moran_I", "Moran_padj", "spatial_class"), colnames(d)))
+        out[[extra]] <- d[[extra]]
+      out
+    }
+
+    # The concise export follows the thresholds selected in Advanced settings.
     output$dl_deg <- downloadHandler(
-      filename = function() paste0(current_sample_name(), "_DEGs_FDR",
-                                  input$volcano_fdr, "_",
-                                  format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv"),
+      filename = function() {
+        cl <- function(x) gsub("[^A-Za-z0-9_-]+", "_", x)
+        paste0(cl(current_sample_name()), "__", cl(deg_sideA_label()),
+               "_vs_", cl(deg_sideB_label()), "_filtered_DEG.csv")
+      },
       content = function(file) {
-        if (!is.null(deg_results())) write.csv(deg_results(), file, row.names = FALSE)
+        write.csv(deg_export_table(), file, row.names = FALSE)
       }
     )
   }

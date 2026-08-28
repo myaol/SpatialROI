@@ -1,12 +1,15 @@
-# SpatialScope <img src="man/figures/logo_spatialscope.png" align="right" height="120" />
+# SpatialROI
 
-SpatialScope is designed to facilitate the ROI-specific exploration, visualization, and analysis of spatial transcriptomics data.
+SpatialROI is designed to facilitate the ROI-specific exploration, visualization, and analysis of spatial transcriptomics data.
 
-**SpatialScope** is an interactive R package with a browser-based interface that enables spatial visualization and analysis directly from processed Seurat objects. Users can interactively select regions of interest (ROI), visualize gene expression patterns, and perform downstream analyses such as cell-type signature scoring, clustering, and differential expression analysis. In addition to the GUI, SpatialScope also provides a set of modular functions for scripted workflows, enabling customized analyses. Usage examples for these functions are provided in the [Function Workflow Vignette](vignettes_functions.Rmd).
+**SpatialROI** is an interactive R package with a browser-based interface that enables spatial visualization and analysis directly from processed Seurat objects. Users can interactively select regions of interest (ROI), visualize gene expression patterns, and perform downstream analyses such as cell-type signature scoring, clustering, and differential expression analysis. In addition to the GUI, SpatialROI also provides a set of modular functions for scripted workflows, enabling customized analyses. Usage examples for these functions are provided in the [Function Workflow Vignette](vignettes_functions.Rmd).
 
-SpatialScope can be accessed via a public demo hosted by the University of Pittsburgh: [https://shiny.crc.pitt.edu/spatial_api/](https://shiny.crc.pitt.edu/spatial_api/).
+SpatialROI can be accessed via a public demo hosted by the University of Pittsburgh: [https://shiny.crc.pitt.edu/spatial_api/](https://shiny.crc.pitt.edu/spatial_api/).
 
-**Note:** This instance is intended for demonstration purposes only and does not support concurrent user uploads or large-scale use.
+**Hosted-use note:** The public instance is intended for demonstration. Uploaded
+objects are isolated to the current Shiny session and released when that session
+ends; they are not intentionally retained for later users. For unpublished,
+patient-derived, large, or multi-section data, use a local installation.
 
 ---
 
@@ -21,11 +24,17 @@ if (!requireNamespace("BiocManager", quietly = TRUE)) {
 BiocManager::install(c("Seurat", "GSVA"))
 ```
 
-You can then install SpatialScope directly from GitHub:
+You can then install SpatialROI directly from GitHub:
 
 ```r
-# install.packages("devtools")
-devtools::install_github("myaol/SpatialScope")
+# install.packages(c("remotes", "devtools"))
+# RCTD is validated against this exact spacexr commit.
+remotes::install_github(
+  "dmcable/spacexr@698d5b09e6f70d75d7a5284cf90f8ba4adcb7205",
+  upgrade = "never"
+)
+remotes::install_github("immunogenomics/presto", upgrade = "never")
+devtools::install_github("myaol/SpatialROI")
 ```
 
 ---
@@ -35,14 +44,14 @@ devtools::install_github("myaol/SpatialScope")
 ### With Example Data
 
 ```r
-library(SpatialScope)
+library(SpatialROI)
 run_spatial_selector("demo")
 ```
 
 ### With Your Own Data
 
 ```r
-library(SpatialScope)
+library(SpatialROI)
 Seurat_object <- readRDS("path/to/your_seurat.rds")
 # Update the object to current Seurat version
 Seurat_object <- UpdateSeuratObject(Seurat_object)
@@ -53,6 +62,29 @@ Or upload through the app interface in the Visualization section using the 📤 
 
 **Requirements:** Seurat object with spatial coordinates, raw or normalized expression data, and H&E image.
 
+### Supported input and size
+
+- SpatialROI is designed and tested for **10x Genomics Visium**. A Seurat object
+  must retain a Visium spatial image and tissue coordinates. Raw input must be a
+  SpaceRanger output bundle containing the filtered feature-barcode matrix and
+  `spatial/` files.
+- Xenium, CosMx, MERSCOPE, Slide-seq, and Visium HD bin objects are not currently
+  validated by the interactive workflow merely because they can be represented in
+  Seurat.
+- The local Shiny request limit is **500 MB**. A hosted reverse proxy may impose a
+  lower limit and return HTTP 413 before the request reaches SpatialROI. Use local
+  analysis for large objects.
+- RDS files expand in memory. The 22-MB example requires approximately 300 MB after
+  loading; memory requirements increase with spots, assays, and image size.
+
+### Bundled example dataset
+
+The example is one human colorectal cancer 10x Visium tissue section from
+Valdeolivas et al. (2024), with **17,529 genes and 1,253 tissue spots**, an H&E
+image, SCT-normalized expression, and precomputed broad-cell-type proportions.
+The associated publication is [*npj Precision Oncology* 8, 7
+(2024)](https://doi.org/10.1038/s41698-023-00488-4).
+
 ---
 
 ## ROI Selection Tool
@@ -62,7 +94,7 @@ Or upload through the app interface in the Visualization section using the 📤 
 If you only need to select spots from a region of interest without launching the full analysis app:
 
 ```r
-library(SpatialScope)
+library(SpatialROI)
 
 # Load your Seurat object
 Seurat_object <- readRDS("path/to/your_seurat.rds")
@@ -86,12 +118,13 @@ This function supports multiple ROI selections and returns a vector of spot IDs,
 
 - 🗺️ **ROI Drawing** - Freehand drawing tools to select custom regions of interest
 - 🧬 **Gene Set and Pathway Visualization** - Spatially map custom gene lists, cell-type signatures, or pathway gene sets
-- 🔗 **Ligand-Receptor Colocalization** - ROI-specific ligand-receptor interaction enrichment analysis
+- 🔗 **Ligand-Receptor Colocalization** - ROI-specific, Gaussian-smoothed ligand-receptor score analysis
 - 🧩 **Cell Type Deconvolution** - RCTD-based cell type deconvolution within user-defined ROIs
 - 📊 **Spot Clustering** - Identify spatial domains using graph-based clustering methods
 - 📈 **DEG Analysis** - Find differentially expressed genes between selected groups or clusters
 - ⚖️ **Feature Comparison** - Statistical comparison plots with parametric/non-parametric tests
 - 💾 **Data Export** - Download spot IDs, DEG results, and Seurat subsets
+- 🖼️ **Figure Export** - Download UMAP, volcano, Moran, violin, and heatmap figures as PDFs
 
 ---
 
@@ -101,7 +134,11 @@ Curated RCTD reference datasets for LUAD/LUSC, RCC, breast cancer, HCC, OSCC, an
 
 DOI: https://doi.org/10.5281/zenodo.20554051
 
-These datasets can be downloaded separately and supplied to SpatialScope for RCTD-based cell-type deconvolution.
+These datasets can be downloaded separately and supplied to SpatialROI for RCTD-based cell-type deconvolution.
+Uploaded Seurat references must contain original RNA counts and cell-type labels
+in active identities or a metadata column; retained cell types require at least
+25 cells. Spatial objects used to rerun RCTD must contain an original `Spatial`
+or `RNA` raw-count assay.
 
 ---
 
@@ -112,13 +149,19 @@ These datasets can be downloaded separately and supplied to SpatialScope for RCT
 - [Function Workflow Vignette](vignettes_functions.Rmd) - Scripted workflow
 - [Manuscript](https://academic.oup.com/bioinformaticsadvances) - Lu et al. 2026, *Bioinformatics Advances* (in submission)
 
+Static statistical plots are exported as publication-ready PDFs.
+
+Deployment owners can use [`deployment/README.md`](deployment/README.md) and the
+read-only verification script to reproduce the validated `spacexr` API and check
+the packaged example, reference, and Hallmark resources.
+
 
 ---
 
 ## Getting Help
 
 If you encounter bugs or have suggestions for improvements:
-- **Report issues:** [GitHub Issues](https://github.com/myaol/SpatialScope/issues)
+- **Report issues:** [GitHub Issues](https://github.com/myaol/SpatialROI/issues)
 - **Contact authors:**
   - Mengyao Lu: [mel373@pitt.edu](mailto:mel373@pitt.edu)
   - Aodong Qiu: [qiuaodon@pitt.edu](mailto:qiuaodon@pitt.edu)
@@ -130,16 +173,16 @@ When reporting issues, please include your sessionInfo(), a minimal reproducible
 
 ## Citation
 
-If you use SpatialScope in your research, please cite:
+If you use SpatialROI in your research, please cite:
 
 ```bibtex
-@article{SpatialScope2026,
-  title = {SpatialScope: An Interactive R Shiny Package for Manual Region-Based Analysis of Spatial Transcriptomics Data},
+@article{SpatialROI2026,
+  title = {SpatialROI: An Interactive R Shiny Package for Manual Region-Based Analysis of Spatial Transcriptomics Data},
   author = {Lu, Mengyao and Qiu, Aodong and Lu, Xinghua and Xu, Min and Chen, Lujia},
   journal = {Bioinformatics Advances},
   year = {2026},
   note = {manuscript in submission},
-  url = {https://github.com/myaol/SpatialScope}
+  url = {https://github.com/myaol/SpatialROI}
 }
 ```
 
@@ -147,13 +190,13 @@ If you use SpatialScope in your research, please cite:
 
 ## Disclaimer
 
-SpatialScope is designed to facilitate intuitive visualization, region selection, and exploratory analysis of spatial transcriptomics data. The tool provides convenient interfaces for clustering, differential expression, and feature comparison, but these analyses are intended for exploratory purposes only. Users should validate any biological interpretations using appropriate statistical or experimental methods.
+SpatialROI is designed to facilitate intuitive visualization, region selection, and exploratory analysis of spatial transcriptomics data. The tool provides convenient interfaces for clustering, differential expression, and feature comparison, but these analyses are intended for exploratory purposes only. Users should validate any biological interpretations using appropriate statistical or experimental methods.
 
 ---
 
 ## Acknowledgments
 
-This work is supported by NIH grants including NHGRI R01HG014023, NLM 4R00LM013089, 5R01LM012011, and by U.S. NIH grants R35GM158094 and R01GM134020, as well as NSF grants DBI-2238093, DBI-2422619, IIS-2211597, and MCB-2205148. We also gratefully acknowledge the support and computational resources provided by the University of Pittsburgh Center for Research Computing and Data (CRCD), which enabled hosting the development of the SpatialScope application.
+This work is supported by NIH grants including NHGRI R01HG014023, NLM 4R00LM013089, 5R01LM012011, and by U.S. NIH grants R35GM158094 and R01GM134020, as well as NSF grants DBI-2238093, DBI-2422619, IIS-2211597, and MCB-2205148. We also gratefully acknowledge the support and computational resources provided by the University of Pittsburgh Center for Research Computing and Data (CRCD), which enabled hosting the development of the SpatialROI application.
 
 ---
 

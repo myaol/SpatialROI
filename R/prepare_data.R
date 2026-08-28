@@ -1,3 +1,7 @@
+.hallmark_cache <- new.env(parent = emptyenv())
+.hallmark_cache$human <- NULL
+.hallmark_cache$mouse <- NULL
+
 #' Prepare Seurat data for spatial selector
 #' @param seurat_input Seurat object or data list
 #' @param sample_name Character label for dataset
@@ -6,13 +10,6 @@
 #' @keywords internal
 #' @importFrom sf st_as_sf st_geometry
 #' @importFrom magrittr %>%
-
-
-.hallmark_cache <- new.env(parent = emptyenv())
-.hallmark_cache$human <- NULL
-.hallmark_cache$mouse <- NULL
-
-
 prepare_seurat_data <- function(seurat_input, sample_name = "sample", show_image = TRUE) {
 
   # 1. Normalize input
@@ -115,10 +112,7 @@ prepare_seurat_data <- function(seurat_input, sample_name = "sample", show_image
         he_image_cropped <- he_image_data[crop_y_min:crop_y_max, crop_x_min:crop_x_max, ]
 
         temp_file <- tempfile(fileext = ".png")
-        png(temp_file, width = dim(he_image_cropped)[2], height = dim(he_image_cropped)[1])
-        par(mar = c(0,0,0,0))
-        plot(as.raster(he_image_cropped))
-        dev.off()
+        png::writePNG(he_image_cropped, target = temp_file)
 
         he_image_base64 <- paste0("data:image/png;base64,", base64enc::base64encode(temp_file))
         unlink(temp_file)
@@ -1012,7 +1006,7 @@ prepare_seurat_data <- function(seurat_input, sample_name = "sample", show_image
   # dropdown is always populated regardless of the server's msigdbr version
   # (Reviewer 3, item 4). Falls back to msigdbr only if the bundled file is absent.
   if (is.null(.hallmark_cache$human) || is.null(.hallmark_cache$mouse)) {
-    hm_file <- system.file("extdata", "hallmark_gene_sets.rds", package = "SpatialScope")
+    hm_file <- system.file("extdata", "hallmark_gene_sets.rds", package = "SpatialROI")
     if (hm_file == "" || !file.exists(hm_file)) {
       hm_file <- file.path("inst", "extdata", "hallmark_gene_sets.rds")  # source/dev fallback
     }

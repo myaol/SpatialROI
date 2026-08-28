@@ -2,7 +2,7 @@
 % Please edit documentation in R/spatial_function.R
 \name{run_spatial_selector}
 \alias{run_spatial_selector}
-\title{Run the SpatialScope Spatial Selector}
+\title{Run the SpatialROI Spatial Selector}
 \usage{
 run_spatial_selector(seurat_input, sample_name = "sample", show_image = TRUE)
 }

@@ -1,33 +1,21 @@
 library(shiny)
 library(shinyjs)
 library(leaflet)
-library(leaflet.extras)
 library(dplyr)
 library(sf)
 library(ggplot2)
-library(gridExtra)
 library(RColorBrewer)
-library(viridis)
 library(Seurat)
-library(SpatialScopeDev)
+library(SpatialROI)
 
-data_path <- getOption("SpatialScope.data_path", default = NULL)  # ← this must match run_SpatialScope
+options(shiny.maxRequestSize = 500 * 1024^2)
+data_path <- getOption("SpatialROI.data_path", default = NULL)
 
 if (!is.null(data_path) && file.exists(data_path)) {
   seurat_obj <- readRDS(data_path)
-  SpatialScopeDev::run_spatial_selector(seurat_obj, basename(data_path), show_image = TRUE)
+  SpatialROI::run_spatial_selector(seurat_obj, basename(data_path), show_image = TRUE)
 } else {
-  ui <- fluidPage(
-    shinyjs::useShinyjs(),
-    titlePanel("Load your data"),
-    fileInput("file", "Upload RDS:")
-  )
-  server <- function(input, output, session) {
-    observeEvent(input$file, {
-      seurat_obj <- readRDS(input$file$datapath)
-      stopApp()
-      SpatialScopeDev::run_spatial_selector(seurat_obj, input$file$name)
-    })
-  }
-  shinyApp(ui, server)
+  # Launch the complete application with the packaged example. Users can replace
+  # it from the session-local upload panel; no nested/second Shiny app is started.
+  SpatialROI::run_spatial_selector("demo")
 }

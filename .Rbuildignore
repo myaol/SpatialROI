@@ -1,3 +1,10 @@
 ^MyApp\.Rproj$
 ^\.Rproj\.user$
 ^LICENSE\.md$
+^benchmark$
+^outputs$
+^SpatialROI_[0-9.]+\.tar\.gz$
+^BENCHMARK_PROTOCOL\.md$
+^HANDOFF\.md$
+^HANDOFF_CURRENT_.*\.md$
+^deployment$

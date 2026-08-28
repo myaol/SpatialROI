@@ -7,3 +7,20 @@ reference_RCTD/
 .RData
 .RData
 .Rhistory
+
+# Build artefacts and local working material — not part of the package source.
+SpatialROI.Rcheck/
+SpatialROI_*.tar.gz
+benchmark/
+deployment/
+output/
+outputs/
+tmp/
+scripts/
+*.Rproj.user/
+
+# Session handoff notes (local working documents)
+HANDOFF.md
+HANDOFF_CURRENT_*.md
+CLAUDE_CODE_STATISTICAL_HANDOFF_*.md
+BENCHMARK_PROTOCOL.md

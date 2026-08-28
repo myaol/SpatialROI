@@ -1,4 +1,4 @@
-# Contributing to SpatialScope
+# Contributing to SpatialROI
 
 We welcome contributions! Please:
 - Report bugs via GitHub Issues

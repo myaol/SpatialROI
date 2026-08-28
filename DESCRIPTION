@@ -1,4 +1,4 @@
-Package: SpatialScope
+Package: SpatialROI
 Title: An Interactive R Shiny Platform for Customized Region-Aware Spatial Transcriptomics Analysis
 Version: 0.1.0
 Authors@R: c(
@@ -25,38 +25,38 @@ Depends:
 Imports:
     DT,
     shiny,
-    bsplus,
-    shinycssloaders,
+    shinyjs,
     leaflet,
-    leaflet.extras,
     sf,
+    sp,
     dplyr,
     Seurat,
     ggplot2,
-    shinyjs,
-    htmlwidgets,
-    sp,
-    base64enc,
-    viridis,
-    RColorBrewer,
-    GSVA,
-    gridExtra,
-    patchwork,
-    reshape2,
-    tibble,
-    tidyr,
-    magrittr,
-    ggforce,
-    grid,
+    ggrepel,
+    scales,
+    future,
     spdep,
-    methods,
-    msigdbr,
-    R.utils
+    Matrix,
+    reshape2,
+    base64enc,
+    RColorBrewer,
+    htmlwidgets,
+    magick,
+    jsonlite,
+    magrittr,
+    patchwork,
+    png,
+    viridis,
+    grid,
+    methods
 Suggests:
     spacexr,
-    Matrix,
+    presto,
+    msigdbr,
+    GSVA,
     testthat (>= 3.0.0)
 Remotes:
-    dmcable/spacexr
+    dmcable/spacexr@698d5b09e6f70d75d7a5284cf90f8ba4adcb7205,
+    immunogenomics/presto
 LazyData: false
 Config/testthat/edition: 3

@@ -1,9 +1,9 @@
 ---
-title: "A Tutorial to SpatialScope"
+title: "A Tutorial to SpatialROI"
 author: "Mengyao Lu"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{SpatialScope User Guide}
+  %\VignetteIndexEntry{SpatialROI User Guide}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -15,17 +15,17 @@ knitr::opts_chunk$set(
 )
 ```
 
-# Getting Started with SpatialScope
+# Getting Started with SpatialROI
 
-SpatialScope is an interactive web application for region-specific analysis and visualization of spatial transcriptomics data. This vignette provides a step-by-step walkthrough of SpatialScope's functionality using the built-in example dataset. 
+SpatialROI is an interactive web application for region-specific analysis and visualization of spatial transcriptomics data. This vignette provides a step-by-step walkthrough of SpatialROI's functionality using the built-in example dataset.
 
 ## Launching the Application
 
-To launch SpatialScope, run the following command in R:
+To launch SpatialROI, run the following command in R:
 
 ```{r eval=FALSE}
-library(SpatialScopeDev)
-run_spatial_selector()
+library(SpatialROI)
+run_SpatialROI("demo")
 ```
 
 The application will open in your default web browser. You can simply click "Start Analysis" in the main intro page.
@@ -41,7 +41,7 @@ The `draw_ROI()` function provides a lightweight interactive tool for quickly se
 ### Usage
 
 ```{r eval=FALSE}
-library(SpatialScopeDev)
+library(SpatialROI)
 
 # Load your data
 my_data <- readRDS("path/to/your_seurat.rds")
@@ -65,35 +65,41 @@ subset_data <- subset(my_data, cells = selected_spots)
 | Tool | Best For | Output |
 |------|----------|--------|
 | `draw_ROI()` | Quick spot selection, multiple ROI extraction, preprocessing | Spot ID vector |
-| `run_spatial_selector()` | Full analysis: DEGs, clustering, comparisons, gene sets | Interactive analysis app |
+| `run_SpatialROI("demo")` or `run_spatial_selector(object)` | Full analysis: DEGs, clustering, comparisons, gene sets | Interactive analysis app |
 
-**Note:** While `draw_ROI()` allows selection of multiple regions, **comparative analyses (Group 1 vs Group 2) and advanced features require the main SpatialScope app** via `run_spatial_selector()`.
+**Note:** `draw_ROI()` returns spot IDs for lightweight scripted use. The full
+SpatialROI app treats every saved ROI as a named region and optionally combines
+multiple ROIs into a named group. Both ROI-versus-ROI and group-versus-group
+comparisons are available from the same region selectors.
 
 ---
 
 ## Data Loading
 
-SpatialScope provides two convenient options for loading data: using a built-in demo dataset or uploading your own Seurat object.
+SpatialROI provides two convenient options for loading data: using a built-in demo dataset or uploading your own Seurat object.
 
 ### Option 1: Using Demo Dataset (Recommended for First-Time Users)
 
 You can launch the app with the preloaded example dataset by running:
 
 ```{r eval=FALSE}
-library(SpatialScopeDev)
-run_spatial_selector("demo")
+library(SpatialROI)
+run_SpatialROI("demo")
 ```
 
 #### Example Data
 
-The demo dataset is derived from human colorectal cancer spatial transcriptomics (Lal et al., 2023), including an H&E tissue image and preprocessed Seurat object. Users can load this example for testing or demonstration purposes.
+The demo dataset is one human colorectal cancer Visium tissue section from
+Valdeolivas et al. (2024), containing 17,529 genes and 1,253 tissue spots, an H&E
+image, and a preprocessed Seurat object. Users can load this example for testing
+or demonstration purposes.
 
 ### Option 2: Uploading Your Own Data
 
 If you have your own spatial transcriptomics dataset (e.g., a .rds or .rdata file containing a Seurat object), you can launch the app with it:
 
 ```{r eval=FALSE}
-library(SpatialScopeDev)
+library(SpatialROI)
 my_data <- readRDS("path/to/your_seurat.rds")
 run_spatial_selector(my_data, sample_name = "MyExperiment")
 ```
@@ -142,31 +148,53 @@ This allows better visibility of the overlaid spatial spots. **Recommended setti
 
 ## Interactive ROI Selection
 
-This is one of SpatialScope's key features, allowing you to define regions of interest (ROIs) directly on tissue images. This is useful for grouping spatial regions for downstream comparison.
+This is one of SpatialROI's key features, allowing you to define regions of interest (ROIs) directly on tissue images. This is useful for grouping spatial regions for downstream comparison.
 
 ### Drawing ROIs
 
 1. **Activate Drawing Mode:**  
    Click the **pen icon** at the top-left of the image panel to enter ROI selection mode. A toolbar will appear with freeform drawing tools.
 
-2. **Draw and Label a Region:**  
+2. **Draw and Save a Named ROI:**
    Draw an irregular region. To enhance visibility, reduce the **Spot Size** and increase the **H&E Opacity**. The selected spots will turn yellow.  
-   Click **"Group 1"** or **"Group 2"** at the bottom of the panel to save the current selection as a group.
+   Enter a biologically meaningful name (for example, `Tumor edge 1`) and click
+   **Save region**. Repeat this step for each distinct component you want to keep.
 
-3. **Visualize Groups on Map:**  
-   Click **"Show Groups on Map"** to overlay your saved ROIs on the tissue. Group 1 will appear as red dots and Group 2 as blue dots.
+3. **Optionally combine ROIs into groups:**
+   Select two or more saved ROIs, enter a group name (for example,
+   `Tumor-adjacent`), and click **Group**. A group is the union of its component
+   ROIs; the original ROIs remain available for ROI-level analysis.
 
-4. **Reset or Redraw:**  
+4. **Visualize ROIs or groups on the map:**
+   Choose an ROI, a group, or all ROIs under **Show on map**, then enable
+   **Show ROIs on Map**. Enable **Show ROI contours** for high-contrast boundaries.
+
+5. **Reset or Redraw:**
    Click **"Clear Selection"** to clear all highlighted spots and start a new ROI selection.
 
-5. **Export Spot IDs:**  
-   To download the list of spot IDs in each group, use the **"Download Group 1"** or **"Download Group 2"** button. The result will be a .txt file containing the spot IDs.
+6. **Export a region:**
+   Select a saved ROI or group under **Show on map**, then use **Save region
+   (.rds)** to export the corresponding Seurat subset.
+
+### Two comparison designs
+
+**Example A — ROI versus ROI.** Draw and save two single regions, such as
+`TLS-like region` and `Tumor region`. In the DEG or Compare panel, set these as
+Side A and Side B. Use this design when each boundary itself represents the
+biological unit of interest.
+
+**Example B — group versus group.** Draw several separate tumor-edge regions and
+save them as `Tumor edge 1`, `Tumor edge 2`, and so on; combine them into a named
+`Tumor-adjacent` group. Repeat for several normal-edge regions and combine them
+as `Normal-adjacent`. Compare the two named groups. Grouping unions the selected
+spots for a within-section exploratory comparison; it does not create additional
+patient-level replicates.
 
 ---
 
 ## Visualization of Features and Gene Set Scoring
 
-SpatialScope allows users to explore and visualize spatial gene activity through both **single-feature mapping** and **gene set scoring**.
+SpatialROI allows users to explore and visualize spatial gene activity through both **single-feature mapping** and **gene set scoring**.
 
 ### Visualizing Features
 
@@ -191,7 +219,7 @@ After loading your data, navigate to the **"Feature Selection"** panel to explor
 
 ### Gene Set Scoring
 
-SpatialScope also supports **gene set based analysis** to visualize composite activity scores from curated or custom gene lists.
+SpatialROI also supports **gene set based analysis** to visualize composite activity scores from curated or custom gene lists.
 
 #### Species Selection
 
@@ -210,7 +238,9 @@ SpatialScope also supports **gene set based analysis** to visualize composite ac
 - In the **Parameters** section, select your preferred scoring method:
   - **Mean** — computes the average expression of all genes in the set
   - **AddModuleScore** — implements Seurat's control-feature–adjusted score
-  - **GSVA (rank-based)** — applies Gene Set Variation Analysis for smoother enrichment profiles. **Note:** GSVA uses a rank-based approach and may take 10-30 seconds to compute depending on dataset size. The visualization will update automatically once calculation is complete.
+  - **Rank-based enrichment** — computes a within-spot mean-rank difference,
+    scaled approximately to [-1, 1]. This is implemented directly by SpatialROI
+    and is **not** the GSVA package statistic.
 - Select a color scheme (*Grey to Red*, *Blue–White–Red*, or *Rainbow*).
 - Click **Calculate Score** to compute scores. Once finished, results will appear as an overlay on the main H&E slide, highlighting regions with enriched expression.
 
@@ -218,7 +248,7 @@ SpatialScope also supports **gene set based analysis** to visualize composite ac
 
 - After scoring, click **Save to Gene Set** to store the calculated results for downstream analyses or re-visualization.
 
-SpatialScope thus integrates flexible **feature-level** visualization with **multi-gene set analysis**, enabling users to map spatial expression patterns and functional gene activities directly onto tissue histology for biologically meaningful interpretation.
+SpatialROI thus integrates flexible **feature-level** visualization with **multi-gene set analysis**, enabling users to map spatial expression patterns and functional gene activities directly onto tissue histology for biologically meaningful interpretation.
 
 ---
 
@@ -231,8 +261,8 @@ Use ROI-based clustering to identify transcriptionally distinct regions within y
 1. Go to the **"Clusters"** tab.
 2. Under **"Cluster which spots"**, choose the scope of analysis:
    - **All Spots** — cluster all spots in the tissue
-   - **Group 1 only** — cluster spots within the Group 1 ROI
-   - **Group 2 only** — cluster spots within the Group 2 ROI
+   - **Any saved ROI** — cluster only that morphology-defined region
+   - **Any saved group** — cluster the union of its component ROIs
 
 3. Set clustering parameters:
    - **Resolution** controls the number of clusters (range 0.1–2.0, default 0.8).
@@ -246,27 +276,25 @@ When clustering is complete, results will appear on the right panel, showing the
 
 Click **"Show on Map"** to overlay the cluster results on the H&E image. Each cluster will appear in a different color, and unselected spots will turn grey.
 
-The clustering results are automatically saved in SpatialScope for further analysis, such as differential expression or ROI comparison.
+The clustering results are automatically saved in SpatialROI for further analysis, such as differential expression or ROI comparison.
 
 ---
 
 ## Differential Expression Analysis
 
-Identify genes that are differentially expressed between spatial regions or between clusters within the same ROI.
+Identify genes that are differentially expressed between any two saved ROIs or
+groups, or between one saved region and the rest of its tissue section.
 
 ### Setting Up the Comparison
 
 1. Go to the **"DEGs"** tab.
 
-2. Under **Compare**, select one of the following options:
-   - *Group 1 vs Rest*
-   - *Group 2 vs Rest*
-   - *Group 1 vs Group 2*
-   - *Clusters in Group 1 (one vs rest)*
-   - *Clusters in Group 2 (one vs rest)*
+2. Select **Side A** as any ROI or group. Select **Side B** as another ROI/group
+   or **Rest of tissue**. This supports ROI-versus-ROI, group-versus-group,
+   mixed ROI-versus-group, and region-versus-rest comparisons.
 
 3. Click **"Find DEGs"** to start.  
-   SpatialScope automatically runs Seurat's `FindMarkers` function and returns the **top differentially expressed genes** ranked by *p-value*. Each result includes the gene name, average log2 fold change (log2FC), and adjusted p-value (*p_adj*).
+   SpatialROI automatically runs Seurat's `FindMarkers` function and returns the **top differentially expressed genes** ranked by *p-value*. Each result includes the gene name, average log2 fold change (log2FC), and adjusted p-value (*p_adj*).
 
    When comparing clusters (e.g., one vs rest), the output also includes:
    - **pct.1**: percentage of spots expressing the gene in the target cluster
@@ -300,10 +328,8 @@ Compare the expression of a single feature, gene set, or metadata variable betwe
    - **Metadata** — compare continuous or categorical variables
    - **Gene Set** — compare pre-defined or custom gene set scores
 
-3. Select regions or ROIs to compare:
-   - *Group 1 vs Rest*
-   - *Group 2 vs Rest*
-   - *Group 1 vs Group 2*
+3. Select any saved ROI or group for **Side A**, and any ROI/group or the rest
+   of tissue for **Side B**.
 
 4. Choose the **Statistical Test**:
    - **t-test** — compares group means (use for normally distributed data)
@@ -315,7 +341,8 @@ Compare the expression of a single feature, gene set, or metadata variable betwe
 ### Feature vs Feature Comparison Within the Same Region
 
 1. Select two features to compare (Feature 1 and Feature 2).
-2. Choose the region or ROI under **"Use Spots"** (All Spots, Group 1, or Group 2).
+2. Choose the spot population under **Use Spots**: all spots, any saved ROI, or
+   any saved group.
 3. Pick the desired statistical test (t-test or Wilcoxon/Mann–Whitney) and click **"Compare"**.  
    A violin plot will show the distributions of the two features in the selected region, along with p-values and sample counts.
 
@@ -385,7 +412,7 @@ new_obj <- UpdateSeuratObject(old_obj)
 saveRDS(new_obj, "path/to/your_seurat.rds")
 ```
 
-Then reload the updated file in SpatialScope.
+Then reload the updated file in SpatialROI.
 
 **ROIs not appearing on map:**
 
@@ -420,7 +447,7 @@ Then reload the updated file in SpatialScope.
 
 If you encounter issues not covered in this vignette:
 
-Visit the SpatialScope GitHub repository for:
+Visit the SpatialROI GitHub repository for:
 
 - Detailed documentation
 - Example datasets
@@ -430,7 +457,7 @@ Visit the SpatialScope GitHub repository for:
 
 ## Citation
 
-If you use SpatialScope in your research, please cite:
+If you use SpatialROI in your research, please cite:
 
 [Citation here]
 
@@ -438,6 +465,6 @@ If you use SpatialScope in your research, please cite:
 
 ## Conclusion
 
-This vignette has walked you through all major features of SpatialScope, from data loading through analysis and export. The interactive nature of SpatialScope makes it a powerful tool for exploratory analysis of spatial transcriptomics data, allowing you to identify biologically relevant regions and understand spatial gene expression patterns.
+This vignette has walked you through all major features of SpatialROI, from data loading through analysis and export. The interactive nature of SpatialROI makes it a powerful tool for exploratory analysis of spatial transcriptomics data, allowing you to identify biologically relevant regions and understand spatial gene expression patterns.
 
 Happy analyzing!
