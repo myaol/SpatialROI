@@ -1220,7 +1220,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                 div(class = "control-section",
                                     h4("🔬 Cell Type Deconvolution"),
                                     tags$p(style = "font-size: 12px; color: #7f8c8d; margin-bottom: 10px;",
-                                          "Cell-type mixtures per spot (RCTD full mode). Fitting all spots is more reliable than ROI-only fits, which are exploratory."),
+                                          "Cell-type mixtures per spot (RCTD)."),
 
                                     # ── Reference source selector ──────────────────────────────────────────
                                     h5("Reference Data"),
@@ -1242,8 +1242,8 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                                   )),
                                       
                                       tags$p(style = "font-size: 11px; color: #7f8c8d; margin-top: 4px;",
-                                            "Built for human colorectal tissue. Other tissues or species need a matched reference — more at our ", 
-                                            tags$a("GitHub", href = "https://github.com/myaol/SpatialScope", target = "_blank"), "."),
+                                            "Built for human colorectal tissue. Other tissues or species need a matched reference \u2014 see our ", 
+                                            tags$a("GitHub", href = "https://github.com/myaol/SpatialROI", target = "_blank"), "."),
 
                                       actionButton("load_builtin_ref", "Load Built-in Reference",
                                                   class = "btn btn-info btn-block",
@@ -1262,10 +1262,6 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                         condition = "input.show_ref_upload % 2 == 1",
                                         fileInput("upload_reference", "Select scRNA-seq Reference (.rds)",
                                                   accept = c(".rds")),
-                                        selectInput("ref_celltype_col", "Cell-type annotation:",
-                                                    choices = c("Active identities" = "idents")),
-                                        tags$p(style = "font-size: 12px; color: #7f8c8d; margin-top: 5px;",
-                                              "Needs a Seurat object with raw RNA counts and cell-type labels, ≥25 cells per type. Loading a reference resets results.")
                                       )
                                     ),
 
@@ -2742,11 +2738,6 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
       ref_seurat(ref)
       rctd_ref_cache(NULL)   # invalidate cache whenever reference changes
 
-      meta_cols <- colnames(ref@meta.data)
-      updateSelectInput(session, "ref_celltype_col",
-                        choices = c("Active identities" = "idents", meta_cols),
-                        selected = "idents")
-
       n_cells  <- ncol(ref)
       n_types  <- length(unique(Idents(ref)))
       output$ref_status <- renderText(
@@ -2794,10 +2785,6 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
             paste0("✓ CRC reference loaded: ", n_cells, " cells, ",
                   n_types, " cell types")
           )
-          # Populate the cell type dropdown for display purposes
-          updateSelectInput(session, "ref_celltype_col",
-                            choices = c("Pre-built (spacexr::Reference)" = "prebuilt"))
-
         } else if (inherits(ref, "Seurat")) {
           # It's a Seurat object — go through normal ingest
           ingest_reference(ref, "Built-in CRC reference")
@@ -2923,13 +2910,38 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
           if (is.null(ref)) {
             stop("No reference loaded. Please load a built-in or upload a reference first.")
           }
-          annotation_col <- if (is.null(input$ref_celltype_col)) "idents" else input$ref_celltype_col
-          cell_types <- if (identical(annotation_col, "idents")) {
-            Idents(ref)
+          # Find the cell-type labels rather than asking the user where they are.
+          # Active identities first, since that is where a prepared reference
+          # normally keeps them; otherwise the metadata column that best looks
+          # like a broad annotation - character or factor, at least two levels,
+          # few enough of them to be cell types rather than per-cell IDs.
+          cell_types <- NULL
+          idt <- tryCatch(Idents(ref), error = function(e) NULL)
+          if (!is.null(idt) && nlevels(as.factor(idt)) >= 2 &&
+              nlevels(as.factor(idt)) <= 100) {
+            cell_types <- idt
           } else {
-            if (!annotation_col %in% colnames(ref@meta.data))
-              stop("The selected cell-type annotation column is not present in the reference.")
-            stats::setNames(ref@meta.data[[annotation_col]], rownames(ref@meta.data))
+            md <- ref@meta.data
+            score <- vapply(names(md), function(cc) {
+              v <- md[[cc]]
+              if (!(is.character(v) || is.factor(v))) return(-1)
+              k <- length(unique(v[!is.na(v)]))
+              if (k < 2 || k > 100 || k > 0.5 * nrow(md)) return(-1)
+              b <- if (grepl("cell.?type|celltype|annotation|label|ident|subset|class",
+                             cc, ignore.case = TRUE)) 100 else 0
+              b + 50 - abs(k - 12)
+            }, numeric(1))
+            if (any(score > 0)) {
+              best <- names(md)[which.max(score)]
+              cell_types <- stats::setNames(md[[best]], rownames(md))
+              showNotification(paste0("Using '", best, "' as the cell-type annotation."),
+                               type = "message", duration = 6)
+            }
+          }
+          if (is.null(cell_types)) {
+            stop(paste0("No cell-type annotation was found in this reference. ",
+                        "Set the labels as the active identities (Idents) or store ",
+                        "them in a metadata column before uploading."))
           }
 
           cell_types <- as.factor(cell_types)
