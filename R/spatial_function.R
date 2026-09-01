@@ -4302,6 +4302,30 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
              "(or SCTransform()) on this object before analysing it.")
     }
 
+    # Pick a log-normalised expression layer for Moran's I. Preference order:
+    #   1. the assay the DEG used, so the two panels describe the same values
+    #   2. any other assay whose data layer is on a normalised scale
+    #   3. the DEG assay regardless, with the caller told it is not normalised
+    # Seurat v5 assays can carry several layers; "data" is the normalised one in
+    # both Assay and Assay5, so it is requested by name rather than by position.
+    .sr_norm_layer <- function(obj, prefer = NULL) {
+      grab <- function(a) tryCatch(GetAssayData(obj, assay = a, layer = "data"),
+                error = function(e) tryCatch(GetAssayData(obj, assay = a, slot = "data"),
+                                             error = function(e2) NULL))
+      looks_norm <- function(d) {
+        if (is.null(d) || !length(d)) return(FALSE)
+        mx <- suppressWarnings(max(d, na.rm = TRUE))
+        is.finite(mx) && mx <= 50
+      }
+      avail <- names(obj@assays)
+      order_try <- unique(c(prefer[prefer %in% avail],
+                            intersect(c("SCT", "Spatial", "RNA"), avail), avail))
+      for (a in order_try) if (looks_norm(grab(a)))
+        return(list(assay = a, data = grab(a), normalised = TRUE))
+      fallback <- if (!is.null(prefer) && prefer %in% avail) prefer else DefaultAssay(obj)
+      list(assay = fallback, data = grab(fallback), normalised = FALSE)
+    }
+
     get_color_palette <- function(scheme, n = 100) {
       # Guard the NULL/unknown cases: `if (NULL == "greyred")` raises "argument
       # is of length zero" and aborts the whole reactive flush, and falling off
@@ -5334,6 +5358,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
     deg_moran_note <- reactiveVal(NULL)
     # How many DEGs the spatial screen actually covered, so the plot can say so.
     deg_moran_scope <- reactiveVal(NULL)
+    deg_moran_assay <- reactiveVal(NULL)   # which assay the spatial screen read
 
     observeEvent(input$run_deg, {
       # Keep Seurat's computation deterministic for this operation, then restore
@@ -5469,18 +5494,18 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                 knn_obj     <- spdep::knearneigh(coords, k = effective_k)
                 listw_obj   <- spdep::nb2listw(spdep::knn2nb(knn_obj), style = "W", zero.policy = TRUE)
 
-                # Use the same assay the DEG was computed on. Forcing "Spatial"
-                # picked up a raw-count data layer on objects whose normalized
-                # values live in SCT, so Moran's I was measuring sequencing depth
-                # rather than spatial structure — and disagreed with the volcano.
-                spatial_assay <- if (!is.null(deg_run_meta()$assay)) deg_run_meta()$assay
-                                 else DefaultAssay(seurat_obj)
-                if (!spatial_assay %in% names(seurat_obj@assays))
-                  spatial_assay <- DefaultAssay(seurat_obj)
-
-                # Keep this secondary spatial screen responsive. Test at most the
-                # 200 filtered DEGs with the largest absolute effect sizes; the
-                # primary DEG table still retains the complete gene universe.
+                # Moran's I needs log-normalised values. Prefer the assay the
+                # DEG used so both panels describe the same data; fall back to
+                # any assay whose data layer is on a normalised scale.
+                norm_src     <- .sr_norm_layer(seurat_obj, prefer = deg_run_meta()$assay)
+                spatial_assay <- norm_src$assay
+                deg_moran_assay(spatial_assay)
+                if (!isTRUE(norm_src$normalised))
+                  showNotification(paste0("No log-normalised layer was found; Moran's I used the '",
+                                          spatial_assay, "' assay as stored. Values on a raw-count ",
+                                          "scale reflect sequencing depth as much as spatial structure."),
+                                   type = "warning", duration = 12, id = "moran_scale")
+                else removeNotification(id = "moran_scale")
                 # Every differentially expressed gene is screened. An earlier
                 # version capped this at the 200 largest effect sizes, which was
                 # invisible in the figure and hid most genes once BH correction
@@ -5488,8 +5513,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                 # 4,400 genes on a 620-spot region.
                 deg_moran_scope(list(tested = nrow(markers), total = nrow(markers),
                                      cap = Inf))
-                candidate_genes <- intersect(markers$gene,
-                  rownames(Seurat::GetAssayData(seurat_obj, assay = spatial_assay, layer = "data")))
+                candidate_genes <- intersect(markers$gene, rownames(norm_src$data))
                                     
                 if (length(candidate_genes) == 0) {
                   deg_moran_note(paste0(
@@ -5505,9 +5529,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                           " genes for spatial structure..."),
                                    type = "message", duration = NULL, id = "moran_running")
                   on.exit(removeNotification(id = "moran_running"), add = TRUE)
-                  expr_matrix <- as.matrix(
-                    Seurat::GetAssayData(seurat_obj, assay = spatial_assay, layer = "data")[candidate_genes, rownames(coords), drop = FALSE]
-                  )
+                  expr_matrix <- as.matrix(norm_src$data[candidate_genes, rownames(coords), drop = FALSE])
 
                   moran_results <- lapply(candidate_genes, function(gene) {
                     x <- expr_matrix[gene, ]
@@ -5706,8 +5728,10 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
             subtitle = {
               sc <- deg_moran_scope()
               rule <- "structured = FDR < 0.05 and I > 0.3; one-sided test within Side A"
-              if (is.null(sc)) rule
-              else paste0("all ", format(sc$total, big.mark = ","), " DEGs screened  \u00b7  ", rule)
+              a <- deg_moran_assay()
+              src <- if (is.null(a)) "" else paste0("  \u00b7  ", a, " assay")
+              if (is.null(sc)) paste0(rule, src)
+              else paste0("all ", format(sc$total, big.mark = ","), " DEGs screened  \u00b7  ", rule, src)
             },
             color = "") +
         theme(legend.position = "top",
