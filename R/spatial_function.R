@@ -1539,15 +1539,17 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                    selectizeInput("deg_side_b", "Side B:", choices = NULL,
                                                   options = list(placeholder = "ROI/group, or Rest of tissue")),
                                    tags$p(style = "font-size:11px; color:#7f8c8d; margin:-8px 0 6px 0;",
-                                          "Prefer non-overlapping regions. Shared spots stay in both sides."),
+                                          "Overlapping regions: shared spots are excluded from both sides."),
                                    # ⚙ Advanced settings (collapsed) — DE test + thresholds (Reviewer 2, item 3).
                                    tags$details(style = "margin:6px 0;",
                                      tags$summary(style = "cursor:pointer; font-weight:600; color:#2c3e50;",
                                                   "⚙ Advanced settings"),
                                      tags$div(style = "padding:8px 4px;",
+                                       # "roc" is not offered: Seurat's ROC test returns an AUC with
+                                       # no p-value, which the FDR/volcano pipeline downstream needs.
                                        selectInput("deg_test", "DE test:",
                                                    choices = c("Wilcoxon" = "wilcox", "t-test" = "t",
-                                                               "Logistic regression" = "LR", "ROC" = "roc"),
+                                                               "Logistic regression" = "LR"),
                                                    selected = "wilcox"),
                                        numericInput("deg_logfc", "|log2FC| ≥", value = 0.25, min = 0, max = 5, step = 0.05),
                                        numericInput("deg_minpct", "Min. spot fraction (min.pct):", value = 0.05, min = 0, max = 1, step = 0.01),
@@ -1566,7 +1568,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                           tableOutput("deg_table")),
                                   plotOutput("deg_volcano", height = "450px"),
                                   tags$p(style = "font-size:11px; color:#7f8c8d; margin-top:4px;",
-                                         "The volcano and Moran's I views use genes passing the selected FDR, prevalence, and |log2FC| thresholds."),
+                                         "All tested genes are plotted; coloured points pass the FDR and |log2FC| thresholds. The table, Moran's I view, and export include the passing genes only."),
                                   downloadButton("dl_deg_volcano", "Download Volcano Figure (PDF)",
                                                  class = "btn btn-warning btn-block"),
                                   plotOutput("deg_moran_volcano", height = "450px"),
@@ -1574,8 +1576,8 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                                  class = "btn btn-warning btn-block"),
 
                                       tags$p(style = "font-size:12px; color:#7f8c8d; margin-top: 6px;",
-                                        "💡 Tip: ", tags$strong("p_adj"), " reflects differential expression; ",
-                                        tags$strong("Moran's I"), " (with adjusted p-values) quantifies spatial autocorrelation."
+                                        tags$strong("p_adj"), " reflects differential expression. ",
+                                        tags$strong("Moran's I"), " quantifies how spatially coherent each DEG's expression is across the section."
                                      ),                                         
                                      br(),
                                      downloadButton("dl_deg", "Download DEG table (.csv)", class = "btn btn-warning btn-block"),
@@ -1619,7 +1621,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                    selectizeInput("violin_side_b", "Side B:", choices = NULL,
                                                   options = list(placeholder = "ROI/group, or Rest of tissue")),
                                    tags$p(style = "font-size:11px; color:#7f8c8d; margin:-8px 0 6px 0;",
-                                          "Prefer non-overlapping regions. Shared spots stay in both sides."),
+                                          "Overlapping regions: shared spots are excluded from both sides."),
                                    selectInput("violin_stat_test", "Test:",
                                                choices = c("Wilcoxon" = "wilcox", "t-test" = "ttest"),
                                                selected = "wilcox"),
@@ -1983,6 +1985,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
       read.table(lr_db_path(), sep = "\t", header = TRUE)
     })    
     deg_results <- reactiveVal(NULL)       # filtered table shown in the DEG panel
+    deg_tested  <- reactiveVal(NULL)       # every gene tested, BH-corrected; feeds the volcano
     violin_data <- reactiveVal(NULL)
     compare_data <- reactiveVal(NULL)
     gene_set_scores <- reactiveVal(list())
@@ -2262,6 +2265,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         category_labels(NULL)
         showing_gene_set(FALSE)
         deg_results(NULL)
+        deg_tested(NULL)
         deg_run_meta(NULL)
         violin_data(NULL)
         compare_data(NULL)
@@ -2593,6 +2597,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         reset_groups()
         current_values(NULL)
         deg_results(NULL)
+        deg_tested(NULL)
         deg_run_meta(NULL)
         gene_set_scores(list())
         current_gene_set_score(NULL)
@@ -5392,6 +5397,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
       future::plan("sequential")
       options(future.globals.maxSize = 8000 * 1024^2)
       deg_results(NULL)
+      deg_tested(NULL)
       deg_run_meta(NULL)
 
       # ── Resolve Side A / Side B from the unified ROI/group pickers ──
@@ -5421,8 +5427,13 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
 
         showNotification("Running DEG analysis...", type = "message", duration = NULL, id = "deg_running")
 
-        # A spot shared by both regions stays in both sides; the labels record
-        # how many. The two sets are then not independent, which the notice says.
+        # A spot shared by both regions cannot sit on both sides of a
+        # two-sample test — each observation belongs to one group, and Seurat
+        # refuses duplicated cells. The old identity-vector approach silently
+        # reassigned every shared spot to Side B; shared spots are now set
+        # aside symmetrically instead, and the labels record the exclusion.
+        # (The violin panel only displays distributions, so it keeps shared
+        # spots in both sides.)
         if (!vs_rest) {
           shared <- intersect(g1, g2)
           if (length(shared) > 0) {
@@ -5431,42 +5442,56 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
               showNotification("Both sides contain exactly the same spots — nothing to compare.",
                                type = "error"); return()
             }
-            deg_sideA_label(paste0(deg_sideA_label(), " (", length(shared), " shared)"))
-            deg_sideB_label(paste0(deg_sideB_label(), " (", length(shared), " shared)"))
+            g1 <- setdiff(g1, shared)
+            g2 <- setdiff(g2, shared)
+            if (length(g1) == 0 || length(g2) == 0) {
+              removeNotification(id = "deg_running")
+              showNotification(
+                paste0("One side is entirely contained in the other: after setting aside the ",
+                       length(shared), " shared spot(s), one side has no spots left to compare."),
+                type = "error"); return()
+            }
+            deg_sideA_label(paste0(deg_sideA_label(), " (", length(shared), " shared excluded)"))
+            deg_sideB_label(paste0(deg_sideB_label(), " (", length(shared), " shared excluded)"))
             showNotification(
-              paste0(length(shared), " spot(s) are in both sides and were kept. ",
-                     "The two sets are not independent, so treat the p-values as descriptive."),
+              paste0(length(shared), " spot(s) belong to both sides and were excluded from the ",
+                     "test — a two-sample comparison needs disjoint groups. Compared ",
+                     length(g1), " vs ", length(g2), " spots."),
               type = "warning", duration = 8)
           }
         }
 
         tryCatch({
-          temp_idents <- rep("Other", ncol(seurat_obj))
-          names(temp_idents) <- colnames(seurat_obj)
-          temp_idents[g1] <- "Group1"
-          if (!vs_rest) temp_idents[g2] <- "Group2"
-
-          cells_to_use <- if (!vs_rest) unique(c(g1, g2)) else colnames(seurat_obj)
-
-          temp_seurat <- subset(seurat_obj, cells = cells_to_use)
-          temp_seurat$temp_ident <- temp_idents[cells_to_use]
-          Idents(temp_seurat) <- "temp_ident"
+          # Explicit cell vectors rather than a temporary identity column: a
+          # named identity vector holds one value per spot, which is what let
+          # shared spots slide into a single side unnoticed.
+          cells_a <- g1
+          cells_b <- if (vs_rest) setdiff(colnames(seurat_obj), g1) else g2
+          if (length(cells_a) < 3 || length(cells_b) < 3) {
+            removeNotification(id = "deg_running")
+            showNotification("Each side needs at least 3 spots for a differential test.",
+                             type = "error"); return()
+          }
 
           deg_test   <- if (is.null(input$deg_test))   "wilcox" else input$deg_test
           deg_lfc    <- if (is.null(input$deg_logfc))  0.25     else input$deg_logfc
           deg_minpct <- if (is.null(input$deg_minpct)) 0.05     else input$deg_minpct
           deg_fdr <- if (is.null(input$volcano_fdr)) 0.05 else input$volcano_fdr
-          deg_run_meta(list(test = deg_test, logfc = deg_lfc, minpct = deg_minpct, fdr = deg_fdr,
-                            n_a = length(g1), n_b = if (vs_rest) length(setdiff(colnames(seurat_obj), g1)) else length(g2),
-                            vs_rest = vs_rest, assay = DefaultAssay(temp_seurat)))
 
-          # Use the thresholds selected in Advanced settings for the displayed
-          # results, plots, and exported descriptive Multi-Sample table.
+          # Every gene passing the prevalence filter is tested, and BH runs
+          # over all of them; the |log2FC| slider is applied AFTERWARDS as a
+          # display filter. Pre-filtering on the observed effect size — the
+          # quantity being tested — keeps null genes whose p-values are
+          # stochastically small and shrinks the BH denominator, so the
+          # realised FDR exceeds the slider value (the independent-filtering
+          # requirement of Bourgon, Gentleman & Huber, PNAS 2010). Prevalence
+          # (min.pct) may stay a pre-filter because it is nearly independent
+          # of the test statistic under the null. A side effect of the old
+          # order: a gene's adjusted p changed when the |log2FC| slider moved.
           tested_markers <- Seurat::FindMarkers(
-            temp_seurat, ident.1 = "Group1",
-            ident.2 = if (!vs_rest) "Group2" else "Other",
+            seurat_obj, ident.1 = cells_a, ident.2 = cells_b,
             test.use = deg_test, verbose = FALSE,
-            min.pct = deg_minpct, logfc.threshold = deg_lfc)
+            min.pct = deg_minpct, logfc.threshold = 0)
 
           tested_markers$gene <- rownames(tested_markers)
           # Use Benjamini-Hochberg (FDR) correction rather than Seurat's default
@@ -5474,12 +5499,19 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
           # and consistent with the rest of the app (Reviewer 2, item 7).
           tested_markers$p_val_adj <- p.adjust(tested_markers$p_val, method = "BH")
 
-          # The ordinary DEG view remains concise and respects the biologist's
-          # chosen FDR after Seurat applies the selected prevalence/effect gates.
+          deg_run_meta(list(test = deg_test, logfc = deg_lfc, minpct = deg_minpct, fdr = deg_fdr,
+                            n_a = length(cells_a), n_b = length(cells_b),
+                            n_genes_tested = nrow(tested_markers),
+                            vs_rest = vs_rest, assay = DefaultAssay(seurat_obj)))
+          deg_tested(tested_markers)
+
+          # The table, Moran screen, and export keep only the genes passing
+          # the biologist's chosen FDR and effect-size thresholds.
           markers <- tested_markers[!is.na(tested_markers$p_val_adj) &
-                            tested_markers$p_val_adj < deg_fdr, , drop = FALSE]
+                            tested_markers$p_val_adj < deg_fdr &
+                            abs(tested_markers$avg_log2FC) >= deg_lfc, , drop = FALSE]
           # Rank by log2FC
-          markers <- markers[order(-abs(markers$avg_log2FC)), ]          
+          markers <- markers[order(-abs(markers$avg_log2FC)), ]
 
           # ── Moran's I spatial autocorrelation ──────────────────────────────
           deg_moran_note(NULL); deg_moran_scope(NULL)
@@ -5540,9 +5572,9 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                 # invisible in the figure and hid most genes once BH correction
                 # widened the DEG list. Cost is linear and modest: about 50 s for
                 # 4,400 genes on a 620-spot region.
-                deg_moran_scope(list(tested = nrow(markers), total = nrow(markers),
-                                     cap = Inf))
                 candidate_genes <- intersect(markers$gene, rownames(norm_src$data))
+                deg_moran_scope(list(tested = length(candidate_genes), total = nrow(markers),
+                                     cap = Inf))
                                     
                 if (length(candidate_genes) == 0) {
                   deg_moran_note(paste0(
@@ -5562,16 +5594,39 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
 
                   moran_results <- lapply(candidate_genes, function(gene) {
                     x <- expr_matrix[gene, ]
-                    if (var(x) == 0) return(data.frame(gene = gene, Moran_I = NA_real_, Moran_pval = NA_real_))
+                    if (var(x) == 0) return(data.frame(gene = gene, Moran_I = NA_real_,
+                                                       Moran_pval = NA_real_, Moran_z = NA_real_))
                     tryCatch({
                       mt <- spdep::moran.test(x, listw = listw_obj,
                                               zero.policy = TRUE, alternative = "greater")
-                      data.frame(gene = gene, Moran_I = as.numeric(mt$estimate[1]), Moran_pval = mt$p.value)
-                    }, error = function(e) data.frame(gene = gene, Moran_I = NA_real_, Moran_pval = NA_real_))
+                      data.frame(gene = gene, Moran_I = as.numeric(mt$estimate[1]),
+                                 Moran_pval = mt$p.value,
+                                 Moran_z = as.numeric(mt$statistic))
+                    }, error = function(e) data.frame(gene = gene, Moran_I = NA_real_,
+                                                      Moran_pval = NA_real_, Moran_z = NA_real_))
                   })
 
-                  moran_df            <- do.call(rbind, moran_results)
-                  moran_df$Moran_padj <- p.adjust(moran_df$Moran_pval, method = "BH")
+                  moran_df <- do.call(rbind, moran_results)
+                  # BH in log10 space from the exact normal log-tail of the z
+                  # statistic. mt$p.value underflows to 0 below ~1e-308, so
+                  # every strongly structured gene piled onto a flat ceiling at
+                  # -log10 = 308 in the scatter; log.p = TRUE keeps the true
+                  # magnitude. Same BH step-up as p.adjust (verified equal to
+                  # p.adjust(..., "BH") wherever the p-values do not underflow);
+                  # NA rows (constant genes, moran.test errors) stay NA and are
+                  # excluded from the count of tests, matching p.adjust.
+                  lp <- ifelse(is.na(moran_df$Moran_z), NA_real_,
+                               stats::pnorm(moran_df$Moran_z, lower.tail = FALSE, log.p = TRUE) / log(10))
+                  ok <- which(!is.na(lp)); m <- length(ok)
+                  neglog <- rep(NA_real_, nrow(moran_df))
+                  if (m > 0) {
+                    o <- ok[order(lp[ok])]                    # ascending p
+                    l <- lp[o] + log10(m / seq_len(m))        # log10(p * m / rank)
+                    l <- rev(cummin(rev(l)))                  # BH step-up minimum
+                    neglog[o] <- -pmin(l, 0)                  # cap adjusted p at 1
+                  }
+                  moran_df$Moran_neglog10_padj <- neglog
+                  moran_df$Moran_padj          <- 10^(-neglog)
 
                   # Merge Moran's I back into ALL markers (non-sig genes get NA)
                   markers <- merge(markers, moran_df, by = "gene", all.x = TRUE)
@@ -5608,7 +5663,12 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
           deg_results(markers)
 
           removeNotification(id = "deg_running")
-          showNotification(paste("Found", nrow(markers), "DEGs"), type = "message")
+          # Say how many genes were tested, not only how many passed — showing
+          # the DEG count alone read as "N tested, N significant".
+          showNotification(paste0("Tested ", format(nrow(tested_markers), big.mark = ","),
+                                  " genes; ", format(nrow(markers), big.mark = ","),
+                                  " pass FDR < ", deg_fdr, " and |log2FC| ≥ ", deg_lfc),
+                           type = "message", duration = 8)
 
         }, error = function(e) {
           removeNotification(id = "deg_running")
@@ -5670,14 +5730,17 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
 
     output$deg_volcano <- renderPlot({
       req(deg_results())
-      df <- deg_results()
+      # Plot every tested gene, not just the significant ones: a volcano whose
+      # points are all significant by construction has no grey cloud and reads
+      # as though everything tested passed.
+      df <- if (!is.null(deg_tested())) deg_tested() else deg_results()
       run_meta <- deg_run_meta()
       fc_thresh  <- if (is.null(run_meta$logfc)) 0.25 else run_meta$logfc
       fdr_thresh <- if (is.null(run_meta$fdr)) 0.05 else run_meta$fdr
 
       df$color <- dplyr::case_when(
-        df$p_val_adj < fdr_thresh & df$avg_log2FC >  fc_thresh ~ "Up",
-        df$p_val_adj < fdr_thresh & df$avg_log2FC < -fc_thresh ~ "Down",
+        df$p_val_adj < fdr_thresh & df$avg_log2FC >=  fc_thresh ~ "Up",
+        df$p_val_adj < fdr_thresh & df$avg_log2FC <= -fc_thresh ~ "Down",
         TRUE ~ "NS"
       )
 
@@ -5698,7 +5761,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         theme_classic(base_size = 13) +
         labs(x = paste0("log2 Fold Change  (→ higher in ", deg_sideA_label(), ")"),
              y = "-log10(FDR)",
-             title = "Filtered Differential Expression",
+             title = "Differential Expression",
              subtitle = paste0(deg_sideA_label(), "  vs  ", deg_sideB_label(),
                                " (FDR < ", fdr_thresh, ", |log2FC| ≥ ", fc_thresh, ")"),
              color = "") +
@@ -5724,12 +5787,26 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
       }
       
       df <- df[!is.na(df$Moran_I) & !is.na(df$Moran_padj), ]
-      df$plot_padj <- pmax(df$Moran_padj, .Machine$double.xmin)
-      
+
       df$spatial_class <- factor(
         df$spatial_class,
         levels = c("Not structured", "Weakly structured", "Spatially structured")
       )
+
+      # Every DEG is screened and classified — the table and export carry all
+      # of them — but the scatter shows at most the strongest 500 by |log2FC|
+      # so the panel stays readable. A display cap, not an analysis cap.
+      n_screened <- nrow(df)
+      if (n_screened > 500) {
+        df <- df[order(-abs(df$avg_log2FC)), , drop = FALSE][1:500, , drop = FALSE]
+      }
+
+      # Exact -log10(adjusted p), computed in log space so it never hits the
+      # double-precision underflow ceiling at ~308 — the curve continues
+      # instead of flattening. Fallback for results computed before the
+      # column existed.
+      if (!"Moran_neglog10_padj" %in% colnames(df))
+        df$Moran_neglog10_padj <- -log10(pmax(df$Moran_padj, .Machine$double.xmin))
 
       label_df <- subset(df, spatial_class == "Spatially structured")
       if (nrow(label_df) > 15) {
@@ -5737,13 +5814,13 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         label_df <- head(label_df, 15)
       }
 
-      p <- ggplot(df, aes(x = Moran_I, y = -log10(plot_padj), color = spatial_class)) +
+      p <- ggplot(df, aes(x = Moran_I, y = Moran_neglog10_padj, color = spatial_class)) +
         geom_point(alpha = 0.7, size = 2.5) +
         scale_color_manual(values = c(
           "Spatially structured" = "#E41A1C",
           "Weakly structured"    = "#FF7F00",
           "Not structured"       = "grey60"
-        )) +
+        ), drop = FALSE) +
         geom_vline(xintercept = 0.3, linetype = "dashed", linewidth = 0.7) +   # ← Moran threshold
         geom_hline(yintercept = -log10(0.05), linetype = "dashed", linewidth = 0.7) + # ← padj threshold
         ggrepel::geom_text_repel(
@@ -5755,15 +5832,17 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         labs(x = "Moran's I", y = "-log10(adj. p-value)",
             title = "Spatially Variable DEGs",
             subtitle = {
+              # One separator only: "<screened count> \u00b7 <criteria incl. assay>".
               sc <- deg_moran_scope()
-              # "one-sided" (alternative = "greater") and the spot set are different
-              # things; saying "one-sided test within Side A" read as though the
-              # comparison itself had one side.
-              rule <- "spatial coherence across the whole section; positive autocorrelation (FDR < 0.05, I > 0.3)"
+              shown <- if (n_screened > 500) " (top 500 by |log2FC| plotted)" else ""
               a <- deg_moran_assay()
-              src <- if (is.null(a)) "" else paste0("  \u00b7  ", a, " assay")
-              if (is.null(sc)) paste0(rule, src)
-              else paste0("all ", format(sc$total, big.mark = ","), " DEGs screened  \u00b7  ", rule, src)
+              rule <- paste0("whole-section spatial coherence (FDR < 0.05, I > 0.3",
+                             if (is.null(a)) "" else paste0("; ", a, " assay"), ")")
+              if (is.null(sc)) rule
+              else if (isTRUE(sc$tested < sc$total))
+                paste0(format(sc$tested, big.mark = ","), " of ", format(sc$total, big.mark = ","),
+                       " DEGs screened", shown, "  \u00b7  ", rule)
+              else paste0("all ", format(sc$total, big.mark = ","), " DEGs screened", shown, "  \u00b7  ", rule)
             },
             color = "") +
         theme(legend.position = "top",
@@ -5816,6 +5895,8 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
       if (!v_vs_rest && length(g2) == 0) {
         showNotification("Side B is empty — pick a non-empty ROI/group, or 'Rest of tissue'.", type = "error"); return()
       }
+      # Same rule as the DEG panel: a two-group comparison uses disjoint
+      # groups, so shared spots are excluded from both sides (plot and test).
       if (!v_vs_rest) {
         shared_spots <- intersect(g1, g2)
         if (length(shared_spots) > 0) {
@@ -5823,11 +5904,20 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
             showNotification("Both sides contain exactly the same spots — nothing to compare.",
                              type = "error"); return()
           }
-          vA <- paste0(vA, " (", length(shared_spots), " shared)")
-          vB <- paste0(vB, " (", length(shared_spots), " shared)")
+          g1 <- setdiff(g1, shared_spots)
+          g2 <- setdiff(g2, shared_spots)
+          if (length(g1) == 0 || length(g2) == 0) {
+            showNotification(
+              paste0("One side is entirely contained in the other: after setting aside the ",
+                     length(shared_spots), " shared spot(s), one side has no spots left to compare."),
+              type = "error"); return()
+          }
+          vA <- paste0(vA, " (", length(shared_spots), " shared excluded)")
+          vB <- paste0(vB, " (", length(shared_spots), " shared excluded)")
           showNotification(paste0(length(shared_spots),
-            " spot(s) are in both sides and were kept. The two sets are not independent, ",
-            "so treat the test as descriptive."), type = "warning", duration = 8)
+            " spot(s) belong to both sides and were excluded — two-group comparisons use ",
+            "disjoint groups. Compared ", length(g1), " vs ", length(g2), " spots."),
+            type = "warning", duration = 8)
         }
       }
 
@@ -7009,9 +7099,13 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         passes_selected_filters = TRUE,
         complete_gene_table = FALSE,
         analysis_format_version = 2L,
-        n_genes_tested = nrow(d),
+        # The genes actually put through the test, not the rows of this
+        # filtered table — the old nrow(d) made every export read as
+        # "N tested, N significant".
+        n_genes_tested = if (is.null(meta) || is.null(meta$n_genes_tested))
+                           nrow(d) else meta$n_genes_tested,
         row.names = NULL, stringsAsFactors = FALSE)
-      for (extra in intersect(c("Moran_I", "Moran_padj", "spatial_class"), colnames(d)))
+      for (extra in intersect(c("Moran_I", "Moran_padj", "Moran_neglog10_padj", "spatial_class"), colnames(d)))
         out[[extra]] <- d[[extra]]
       out
     }
