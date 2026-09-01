@@ -5472,7 +5472,16 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
           if (requireNamespace("spdep", quietly = TRUE)) {
             tryCatch({
               coords_full <- Seurat::GetTissueCoordinates(seurat_obj)
-              moran_spots <- g1   # Side A (the ROI/group being characterized)
+              # Moran's I runs over the whole tissue section, not the drawn
+              # region. Restricting it to Side A measured structure only inside
+              # the ROI and built the neighbour graph from a truncated
+              # neighbourhood; restricting it to Side A + Side B would be worse
+              # still, because a gene that is simply high in one region and low
+              # in the other is autocorrelated by construction, which makes the
+              # statistic partly a restatement of the DEG contrast. Over the full
+              # section it is an independent question: is this DEG spatially
+              # coherent across the tissue?
+              moran_spots <- colnames(seurat_obj)
               coords <- coords_full[rownames(coords_full) %in% moran_spots, ]
 
               row_col <- intersect(c("imagerow", "pxl_row_in_fullres", "y"), colnames(coords_full))[1]
@@ -5483,10 +5492,10 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
 
               if (nrow(coords) < 30) {
                 deg_moran_note(paste0(
-                  "Moran's I needs at least 30 spots in Side A; this region has ",
-                  nrow(coords), ". Draw a larger region to get the spatial screen."))
-                showNotification(paste0("Moran's I skipped: Side A has ", nrow(coords),
-                                        " spots and at least 30 are needed. Draw a larger region."),
+                  "Moran's I needs at least 30 spots with coordinates; this section has ",
+                  nrow(coords), "."))
+                showNotification(paste0("Moran's I skipped: only ", nrow(coords),
+                                        " spots have coordinates; at least 30 are needed."),
                                  type = "warning", duration = 9, id = "moran_skip")
               }
               if (nrow(coords) >= 30) {
@@ -5727,7 +5736,10 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
             title = "Spatially Variable DEGs",
             subtitle = {
               sc <- deg_moran_scope()
-              rule <- "structured = FDR < 0.05 and I > 0.3; one-sided test within Side A"
+              # "one-sided" (alternative = "greater") and the spot set are different
+              # things; saying "one-sided test within Side A" read as though the
+              # comparison itself had one side.
+              rule <- "spatial coherence across the whole section; positive autocorrelation (FDR < 0.05, I > 0.3)"
               a <- deg_moran_assay()
               src <- if (is.null(a)) "" else paste0("  \u00b7  ", a, " assay")
               if (is.null(sc)) paste0(rule, src)
@@ -6215,7 +6227,9 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
             geom_boxplot(width = 0.15, fill = "white", outlier.shape = NA) +
             labs(title = "Two Features Comparison",
                  subtitle = if(!is.na(pvalue_comp)) {
-                   test_name <- if(stat_test == "ttest") "Paired t-test" else "Wilcoxon test"
+                   # Both branches run paired = TRUE; the label must say so for the
+                   # Wilcoxon case too, or the figure reads as an unpaired test.
+                   test_name <- if(stat_test == "ttest") "Paired t-test" else "Wilcoxon signed-rank test"
                    paste0(test_name, " p = ", format(pvalue_comp, scientific = TRUE, digits = 3),
                           " (n = ", n_spots, " spots)")
                  } else {
