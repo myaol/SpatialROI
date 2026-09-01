@@ -5481,12 +5481,14 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                 # Keep this secondary spatial screen responsive. Test at most the
                 # 200 filtered DEGs with the largest absolute effect sizes; the
                 # primary DEG table still retains the complete gene universe.
-                moran_cap <- 200L
-                deg_moran_scope(list(tested = min(moran_cap, nrow(markers)),
-                                     total  = nrow(markers),
-                                     cap    = moran_cap))
-                ranked_moran_genes <- head(markers$gene[order(-abs(markers$avg_log2FC))], moran_cap)
-                candidate_genes <- intersect(ranked_moran_genes,
+                # Every differentially expressed gene is screened. An earlier
+                # version capped this at the 200 largest effect sizes, which was
+                # invisible in the figure and hid most genes once BH correction
+                # widened the DEG list. Cost is linear and modest: about 50 s for
+                # 4,400 genes on a 620-spot region.
+                deg_moran_scope(list(tested = nrow(markers), total = nrow(markers),
+                                     cap = Inf))
+                candidate_genes <- intersect(markers$gene,
                   rownames(Seurat::GetAssayData(seurat_obj, assay = spatial_assay, layer = "data")))
                                     
                 if (length(candidate_genes) == 0) {
@@ -5499,6 +5501,10 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                    type = "warning", duration = 9, id = "moran_skip")
                 }
                 if (length(candidate_genes) > 0) {
+                  showNotification(paste0("Screening ", format(length(candidate_genes), big.mark = ","),
+                                          " genes for spatial structure..."),
+                                   type = "message", duration = NULL, id = "moran_running")
+                  on.exit(removeNotification(id = "moran_running"), add = TRUE)
                   expr_matrix <- as.matrix(
                     Seurat::GetAssayData(seurat_obj, assay = spatial_assay, layer = "data")[candidate_genes, rownames(coords), drop = FALSE]
                   )
@@ -5700,9 +5706,8 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
             subtitle = {
               sc <- deg_moran_scope()
               rule <- "structured = FDR < 0.05 and I > 0.3; one-sided test within Side A"
-              if (is.null(sc) || sc$total <= sc$cap) rule
-              else paste0("top ", sc$tested, " of ", format(sc$total, big.mark = ","),
-                          " DEGs by |log2FC|  \u00b7  ", rule)
+              if (is.null(sc)) rule
+              else paste0("all ", format(sc$total, big.mark = ","), " DEGs screened  \u00b7  ", rule)
             },
             color = "") +
         theme(legend.position = "top",
