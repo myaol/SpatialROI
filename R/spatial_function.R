@@ -1825,6 +1825,13 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
   )
 
   server <- function(input, output, session) {
+    # Long synchronous work (RCTD in particular) blocks the R process, so Shiny
+    # cannot answer the browser's heartbeats and the socket is dropped. Without
+    # this the session is then gone for good: the page keeps showing a spinner
+    # and every later click goes nowhere. allowReconnect lets the browser
+    # re-attach to the same session once the blocking call returns.
+    session$allowReconnect(TRUE)
+
 
     # ── Session isolation ─────────────────────────────────────────────────────
     # Create session-local copies of every mutable data object. These shadow the
@@ -2993,6 +3000,21 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         }
         spatial_assay <- raw_assays[1]
 
+        # The gene-matched reference depends only on the reference and the
+        # spatial gene universe, never on which spots are selected - sp_counts is
+        # subset by column. Building it inside the loop rebuilt the same object
+        # for every region, and Reference() over ~14,000 cells is the expensive
+        # step, so a two-region run paid for it twice.
+        .spatial_all_genes <- rownames(Seurat::GetAssayData(seurat_obj,
+                                        assay = spatial_assay, layer = "counts"))
+        .common_genes <- intersect(rownames(rctd_ref@counts), .spatial_all_genes)
+        if (length(.common_genes) < 100)
+          stop("Only ", length(.common_genes), " genes overlap between the reference and ",
+               "the spatial data. Check that both use the same species and gene symbols.")
+        .ref_sub <- spacexr::Reference(rctd_ref@counts[.common_genes, , drop = FALSE],
+                                       rctd_ref@cell_types)
+        message("Reference built once for ", length(.common_genes), " shared genes")
+
         # ── Run per group ──────────────────────────────────────────────────────
         results      <- list()
         overlap_msgs <- c()
@@ -3037,15 +3059,9 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                         "Check that both use the same species and gene symbol convention."))
           }
 
-          # Subset both to common genes
-          sp_counts_sub  <- sp_counts[common_genes, , drop = FALSE]
-          ref_counts_sub <- rctd_ref@counts[common_genes, , drop = FALSE]
-          # DEBUG - check console output
-
-
-          # Rebuild reference with matched genes only
-          rctd_ref_sub <- spacexr::Reference(ref_counts_sub, rctd_ref@cell_types)
-          message("Reference built OK")
+          # Reuse the reference built before the loop.
+          sp_counts_sub <- sp_counts[common_genes, , drop = FALSE]
+          rctd_ref_sub  <- .ref_sub
 
           # ── FIX 2: Coordinates with nUMI ──────────────────────────────────
           coords_all <- Seurat::GetTissueCoordinates(seurat_obj)
@@ -3073,8 +3089,12 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
           message("SpatialRNA built OK")
 
           # Run RCTD
+          # Single-core was leaving RCTD several times slower than it needs to
+          # be. Cap at 4 so a shared deployment is not monopolised.
+          n_cores <- tryCatch(max(1L, min(4L, parallel::detectCores() - 1L)),
+                              error = function(e) 1L)
           rctd_obj <- spacexr::create.RCTD(sp_obj, rctd_ref_sub,
-                                            max_cores = 1,
+                                            max_cores = n_cores,
                                             CELL_MIN_INSTANCE = 25)
                               
           rctd_obj <- spacexr::run.RCTD(rctd_obj, doublet_mode = "full")
