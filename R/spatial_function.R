@@ -3930,23 +3930,32 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         default_assay <- DefaultAssay(spatial_obj)
 
         # Check if data needs preprocessing (works with any assay name: Spatial, RNA, etc.)
-        # FIXED — works for both Assay (v4) and Assay5 (v5)
-        if (!"SCT" %in% names(spatial_obj@assays)) {
-          needs_preprocessing <- tryCatch({
-            # v4: check scale.data and var.features slots
-            current_assay <- spatial_obj@assays[[default_assay]]
-            scale_data   <- slot(current_assay, "scale.data")
-            var_features <- slot(current_assay, "var.features")
-            is.null(scale_data) || length(scale_data) == 0 ||
-              is.null(var_features) || length(var_features) == 0
-          }, error = function(e) {
-            # v5 Assay5: check layers and VariableFeatures instead
-            layers <- names(spatial_obj@assays[[default_assay]]@layers)
-            vf     <- VariableFeatures(spatial_obj)
-            !("scale.data" %in% layers) || length(vf) == 0
-          })
+        # The presence of an SCT assay is NOT proof that scale.data exists:
+        # DietSeurat-style and size-slimmed exports routinely drop it, and
+        # RunPCA errors with "Data has not been scaled" without it. So check
+        # the default assay's actual state instead of assuming.
+        needs_preprocessing <- tryCatch({
+          # v4: check scale.data and var.features slots
+          current_assay <- spatial_obj@assays[[default_assay]]
+          scale_data   <- slot(current_assay, "scale.data")
+          var_features <- slot(current_assay, "var.features")
+          is.null(scale_data) || length(scale_data) == 0 ||
+            is.null(var_features) || length(var_features) == 0
+        }, error = function(e) {
+          # v5 Assay5: check layers and VariableFeatures instead
+          layers <- names(spatial_obj@assays[[default_assay]]@layers)
+          vf     <- VariableFeatures(spatial_obj)
+          !("scale.data" %in% layers) || length(vf) == 0
+        })
 
-          if (needs_preprocessing) {
+        if (needs_preprocessing) {
+          if (identical(default_assay, "SCT")) {
+            # SCT's data layer is already log-normalised corrected counts, so
+            # never NormalizeData it — only recompute what is missing.
+            if (length(Seurat::VariableFeatures(spatial_obj)) == 0)
+              spatial_obj <- Seurat::FindVariableFeatures(spatial_obj, verbose = FALSE)
+            spatial_obj <- ScaleData(spatial_obj, verbose = FALSE)
+          } else {
             spatial_obj <- NormalizeData(spatial_obj, verbose = FALSE)
             spatial_obj <- Seurat::FindVariableFeatures(spatial_obj, verbose = FALSE)
             spatial_obj <- ScaleData(spatial_obj, verbose = FALSE)
