@@ -1055,14 +1055,15 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                     # ── Existing RDS upload ──────────────────────────────────────────
                                     conditionalPanel(
                                       condition = "input.data_input_type == 'rds'",
-                                      div(style = "display: flex; gap: 10px; margin-bottom: 15px;",
+                                      div(style = "display: flex; gap: 10px; margin-bottom: 8px;",
                                           actionButton("use_example_data", "📊 Use Example Data",
-                                                      class = "btn btn-primary", style = "flex: 1;"),
-                                          actionButton("use_example_data2", "🧬 Demo 2: Liver",
                                                       class = "btn btn-primary", style = "flex: 1;"),
                                           actionButton("show_upload_panel", "📤 Upload .rds",
                                                       class = "btn btn-info", style = "flex: 1;")
                                       ),
+                                      actionButton("use_example_data2", "🧬 Example Data 2",
+                                                  class = "btn btn-primary",
+                                                  style = "width:100%; margin-bottom:15px;"),
                                       conditionalPanel(
                                         condition = "input.show_upload_panel % 2 == 1",
                                         fileInput("upload_seurat", "Select Seurat Object (.rds)",
@@ -1074,7 +1075,8 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                       ),
                                       tags$div(
                                         style = "font-size:11px; color:#607080; line-height:1.45; margin-top:8px; padding:8px; background:#f4f7f9; border-radius:6px;",
-                                        tags$div(tags$b("Example:"), " human colorectal cancer Visium; 1,253 spots and 17,529 genes."),
+                                        tags$div(tags$b("Example Data 1:"), " human colorectal cancer Visium; 1,253 spots and 17,529 genes."),
+                                        tags$div(tags$b("Example Data 2:"), " human liver (HCC-cohort tumour-adjacent normal) Visium; 3,656 spots and 22,453 genes."),
                                         tags$div(tags$b("Uploads:"), " Local installs accept files up to 500 MB. ",
                                                  "The hosted server may allow less. For large files, please run SpatialROI locally.")
                                       )
@@ -1713,7 +1715,12 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                             tags$div(style = "background:linear-gradient(135deg,#0072B5 0%,#E18727 100%); color:white; padding:22px 24px; border-radius:12px; margin-bottom:20px;",
                               tags$h1(style = "margin:0 0 8px 0; font-size:26px; font-weight:bold;", "🧩 Multi-Sample"),
                               tags$p(style = "margin:0; font-size:15px; line-height:1.6; opacity:.97;",
-                                "Compare ROI-versus-rest DEG results across tissues without pooling expression matrices. Tables may come from SpatialROI or another compatible DEG workflow.")
+                                "Compare ROI-versus-rest DEG results across tissues without pooling expression matrices. Tables may come from SpatialROI or another compatible DEG workflow."),
+                              tags$p(style = "margin:10px 0 0 0; font-size:14px; line-height:1.6; opacity:.97;",
+                                "“Load example tables” loads three bundled ROI-versus-rest tables from independent sections — ",
+                                "01_CRC_TLS_ROI_vs_rest.csv, 02_P2N_liver_TLS_ROI_vs_rest.csv and 03_HCC_liver_TLS_ROI_vs_rest.csv — ",
+                                "for demonstration. To test the whole workflow yourself: load Example Data 1 (CRC) and Example Data 2 (liver) ",
+                                "from the Data page, draw a region on each, export both DEG tables, and upload them here.")
                             ),
 
                             # ── 1. Load signatures ────────────────────────────────────────
@@ -1727,13 +1734,6 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                                class = "btn btn-primary btn-sm"),
                                   actionButton("ms_clear", "Clear all", class = "btn btn-default btn-sm"),
                                   tags$span(style = "font-size:13px; color:#7f8c8d;", textOutput("ms_status", inline = TRUE))),
-                              tags$p(style = "font-size:11px; color:#7f8c8d; margin:-4px 0 8px 0;",
-                                "\u201cLoad example tables\u201d loads three bundled ROI-versus-rest tables from independent sections \u2014 ",
-                                tags$b("01_CRC_TLS_ROI_vs_rest.csv"), ", ",
-                                tags$b("02_P2N_liver_TLS_ROI_vs_rest.csv"), " and ",
-                                tags$b("03_HCC_liver_TLS_ROI_vs_rest.csv"), " \u2014 for demonstration. ",
-                                "To test the whole workflow yourself: load the CRC example and Demo 2 (liver) ",
-                                "from the Data page, draw a region on each, export both DEG tables, and upload them here."),
                               div(style = "max-height:240px; overflow-y:auto;", tableOutput("ms_table")),
                               tags$p(style = "font-size:11px; color:#7f8c8d; margin-top:8px;",
                                 "At least two ROI tables are required. Adding more tables typically reduces the number of genes shared across all of them. Multiple ROIs from one patient are allowed, but they are not independent biological replicates."),
@@ -2691,10 +2691,10 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
     # reviewer can draw an ROI here, export a table, and reproduce it.
     observeEvent(input$use_example_data2, {
       shinyjs::runjs("
-        $('#loading_message').text('Loading demo 2 (liver)...');
+        $('#loading_message').text('Loading Example Data 2...');
         $('#loading_overlay').addClass('active');
       ")
-      showNotification("Loading demo 2 (liver)...", type = "message",
+      showNotification("Loading Example Data 2...", type = "message",
                        duration = NULL, id = "load_seurat")
       Sys.sleep(0.3)
 
