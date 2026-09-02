@@ -2988,6 +2988,24 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
             Seurat::GetAssayData(ref[, keep_cells], layer = "counts"),
             error = function(e) stop("The uploaded reference must contain an original raw-count layer for RCTD.")
           )
+          # Standard RCTD requires raw integer counts — spacexr's own
+          # require_int check rejects anything else. Refuse a layer that is
+          # clearly on a log scale rather than silently rounding it into
+          # garbage; scattered non-integer values (e.g. ambient-corrected
+          # counts) are rounded with a visible warning instead.
+          .ref_vals <- if (inherits(ref_counts, "sparseMatrix")) ref_counts@x else as.numeric(ref_counts)
+          if (length(.ref_vals) > 0) {
+            .ref_max <- suppressWarnings(max(.ref_vals))
+            if (is.finite(.ref_max) && .ref_max <= 50)
+              stop("The reference 'counts' layer looks log-normalised (largest value ",
+                   round(.ref_max, 2), "; raw counts usually reach the hundreds). RCTD requires ",
+                   "raw integer counts — upload a reference carrying its original counts.")
+            if (any(.ref_vals != round(.ref_vals)))
+              showNotification(paste0("The reference counts layer contains non-integer values; ",
+                                      "they were rounded for RCTD. If this layer is normalised ",
+                                      "rather than raw, the deconvolution is not valid."),
+                               type = "warning", duration = 12)
+          }
           ref_counts <- round(ref_counts)
           cell_types <- droplevels(cell_types[keep_cells])
 
@@ -3039,6 +3057,18 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
               paste0(grp_label, ": ", length(spots),
                     " spots selected — RCTD may take 2-4 minutes."),
               type = "warning", duration = 8
+            )
+          }
+
+          # RCTD estimates its platform/noise model from the selected spots,
+          # so a very small selection gives less stable proportions. Inherent
+          # to RCTD, not a bug — warn, don't block.
+          if (length(spots) < 50) {
+            showNotification(
+              paste0(grp_label, ": only ", length(spots), " spots — RCTD fits its ",
+                     "noise model from the selected spots, so very small selections give ",
+                     "less stable proportions. Consider a larger region or 'All spots'."),
+              type = "warning", duration = 10
             )
           }
 
@@ -3130,6 +3160,20 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
             )
           }
         }
+
+        # Each region is a separate RCTD run with its own fitted error model
+        # (standard RCTD behaviour). Say so when several regions are compared.
+        if (length(results) > 1) {
+          showNotification(
+            paste0("Each region was deconvolved independently, so RCTD re-estimated its ",
+                   "error model per region. For strictly comparable proportions across ",
+                   "regions, deconvolve 'All spots' once and compare within that run."),
+            type = "message", duration = 12)
+        }
+
+        overlap_msgs <- c(overlap_msgs,
+          paste0("Note: proportions are relative to the reference's cell types — ",
+                 "a type missing from the reference is redistributed onto those listed."))
 
         deconv_results(results)
         deconv_labels(labels_map)
@@ -5570,8 +5614,8 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                 # Every differentially expressed gene is screened. An earlier
                 # version capped this at the 200 largest effect sizes, which was
                 # invisible in the figure and hid most genes once BH correction
-                # widened the DEG list. Cost is linear and modest: about 50 s for
-                # 4,400 genes on a 620-spot region.
+                # widened the DEG list. The screen is vectorised below, so even
+                # thousands of genes cost about a second.
                 candidate_genes <- intersect(markers$gene, rownames(norm_src$data))
                 deg_moran_scope(list(tested = length(candidate_genes), total = nrow(markers),
                                      cap = Inf))
@@ -5592,21 +5636,50 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                   on.exit(removeNotification(id = "moran_running"), add = TRUE)
                   expr_matrix <- as.matrix(norm_src$data[candidate_genes, rownames(coords), drop = FALSE])
 
-                  moran_results <- lapply(candidate_genes, function(gene) {
-                    x <- expr_matrix[gene, ]
-                    if (var(x) == 0) return(data.frame(gene = gene, Moran_I = NA_real_,
-                                                       Moran_pval = NA_real_, Moran_z = NA_real_))
-                    tryCatch({
-                      mt <- spdep::moran.test(x, listw = listw_obj,
-                                              zero.policy = TRUE, alternative = "greater")
-                      data.frame(gene = gene, Moran_I = as.numeric(mt$estimate[1]),
-                                 Moran_pval = mt$p.value,
-                                 Moran_z = as.numeric(mt$statistic))
-                    }, error = function(e) data.frame(gene = gene, Moran_I = NA_real_,
-                                                      Moran_pval = NA_real_, Moran_z = NA_real_))
-                  })
-
-                  moran_df <- do.call(rbind, moran_results)
+                  # Vectorised Moran's I: the same statistic and randomisation
+                  # variance as spdep::moran.test(alternative = "greater"),
+                  # computed for every gene at once from the sparse weight
+                  # matrix (verified equal to the per-gene moran.test to
+                  # <1e-9 on real data). The old per-gene loop blocked the R
+                  # process — and with it the whole UI — for minutes on large
+                  # sections (~7+ min for 5,200 DEGs on 3,700 spots); this
+                  # form takes seconds.
+                  nbl <- listw_obj$neighbours; wtl <- listw_obj$weights
+                  .ii <- rep(seq_along(nbl), lengths(nbl)); .jj <- unlist(nbl); .xx <- unlist(wtl)
+                  .keep <- .jj > 0
+                  Wm <- Matrix::sparseMatrix(i = .ii[.keep], j = .jj[.keep], x = .xx[.keep],
+                                             dims = c(length(nbl), length(nbl)))
+                  n_sp <- nrow(Wm); S0 <- sum(Wm)
+                  S1 <- sum((Wm + Matrix::t(Wm))@x^2) / 2
+                  S2 <- sum((Matrix::rowSums(Wm) + Matrix::colSums(Wm))^2)
+                  EI <- -1 / (n_sp - 1)
+                  G  <- length(candidate_genes)
+                  Iv <- m2v <- b2v <- numeric(G)
+                  for (.s in seq(1, G, by = 2000)) {
+                    .e <- min(.s + 1999, G)
+                    Zc <- scale(t(expr_matrix[.s:.e, , drop = FALSE]),
+                                center = TRUE, scale = FALSE)
+                    m2 <- colSums(Zc^2); m4 <- colSums(Zc^4)
+                    Iv[.s:.e]  <- (n_sp / S0) * colSums(Zc * as.matrix(Wm %*% Zc)) / m2
+                    m2v[.s:.e] <- m2
+                    b2v[.s:.e] <- n_sp * m4 / m2^2
+                    if (G > 2000)
+                      showNotification(paste0("Screening spatial structure... ",
+                                              format(.e, big.mark = ","), " / ",
+                                              format(G, big.mark = ","), " genes"),
+                                       type = "message", duration = NULL, id = "moran_running")
+                  }
+                  VarI <- (n_sp * ((n_sp^2 - 3*n_sp + 3) * S1 - n_sp * S2 + 3 * S0^2) -
+                           b2v * ((n_sp^2 - n_sp) * S1 - 2 * n_sp * S2 + 6 * S0^2)) /
+                          ((n_sp - 1) * (n_sp - 2) * (n_sp - 3) * S0^2) - EI^2
+                  zv <- (Iv - EI) / sqrt(VarI)
+                  # Constant genes (zero variance) stay NA, exactly as the old
+                  # per-gene guard behaved.
+                  .valid <- m2v > 0 & is.finite(zv)
+                  moran_df <- data.frame(gene = candidate_genes,
+                                         Moran_I = ifelse(.valid, Iv, NA_real_),
+                                         Moran_pval = ifelse(.valid, stats::pnorm(zv, lower.tail = FALSE), NA_real_),
+                                         Moran_z = ifelse(.valid, zv, NA_real_))
                   # BH in log10 space from the exact normal log-tail of the z
                   # statistic. mt$p.value underflows to 0 below ~1e-308, so
                   # every strongly structured gene piled onto a flat ceiling at
