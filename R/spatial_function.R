@@ -1735,7 +1735,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                 tags$div("“Load example tables” loads three bundled TLS-signature ROI-versus-rest tables from independent sections:"),
                                 tags$div(tags$b("01_CRC_TLS_ROI_vs_rest.csv"), " — TLS ROI drawn on Example Data 1 (CRC)"),
                                 tags$div(tags$b("02_P2N_liver_TLS_ROI_vs_rest.csv"), " — TLS ROI drawn on Example Data 2 (liver)"),
-                                tags$div(tags$b("03_HCC_liver_TLS_ROI_vs_rest.csv"), " — HCC tumour leading edge (Wu et al., Sci Adv 2021)"),
+                                tags$div(tags$b("03_HCC_liver_TLS_ROI_vs_rest.csv"), " — TLS ROI drawn on an HCC tumour leading-edge section (Wu et al., Sci Adv 2021)"),
                                 tags$div(style = "margin-top:6px;",
                                   tags$b("To redo this workflow yourself:"),
                                   " load Example Data 1 (CRC) and Example Data 2 (liver) from the Data page, draw a TLS-like region on each, export both DEG tables, and upload them here.")
