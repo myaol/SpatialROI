@@ -1732,13 +1732,13 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                   actionButton("ms_clear", "Clear all", class = "btn btn-default btn-sm"),
                                   tags$span(style = "font-size:13px; color:#7f8c8d;", textOutput("ms_status", inline = TRUE))),
                               tags$div(style = "font-size:12px; color:#5a6b7b; line-height:1.7; margin:0 0 8px 0;",
-                                tags$div("“Load example tables” loads three bundled ROI-versus-rest tables from independent sections:"),
-                                tags$div(tags$b("01_CRC_TLS_ROI_vs_rest.csv"), " — colorectal cancer demo section (Example Data 1)"),
-                                tags$div(tags$b("02_P2N_liver_TLS_ROI_vs_rest.csv"), " — HCC-adjacent normal liver (Example Data 2)"),
+                                tags$div("“Load example tables” loads three bundled TLS-signature ROI-versus-rest tables from independent sections:"),
+                                tags$div(tags$b("01_CRC_TLS_ROI_vs_rest.csv"), " — TLS ROI drawn on Example Data 1 (CRC)"),
+                                tags$div(tags$b("02_P2N_liver_TLS_ROI_vs_rest.csv"), " — TLS ROI drawn on Example Data 2 (liver)"),
                                 tags$div(tags$b("03_HCC_liver_TLS_ROI_vs_rest.csv"), " — HCC tumour leading edge (Wu et al., Sci Adv 2021)"),
                                 tags$div(style = "margin-top:6px;",
-                                  tags$b("To test the whole workflow yourself:"),
-                                  " load Example Data 1 (CRC) and Example Data 2 (liver) from the Data page, draw a region on each, export both DEG tables, and upload them here.")
+                                  tags$b("To redo this workflow yourself:"),
+                                  " load Example Data 1 (CRC) and Example Data 2 (liver) from the Data page, draw a TLS-like region on each, export both DEG tables, and upload them here.")
                               ),
                               div(style = "max-height:240px; overflow-y:auto;", tableOutput("ms_table")),
                               tags$p(style = "font-size:11px; color:#7f8c8d; margin-top:8px;",
