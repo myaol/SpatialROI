@@ -1061,9 +1061,11 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                           actionButton("show_upload_panel", "📤 Upload .rds",
                                                       class = "btn btn-info", style = "flex: 1;")
                                       ),
-                                      actionButton("use_example_data2", "🧬 Example Data 2",
-                                                  class = "btn btn-primary",
-                                                  style = "width:100%; margin-bottom:15px;"),
+                                      div(style = "display: flex; gap: 10px; margin-bottom: 15px;",
+                                          actionButton("use_example_data2", "🧬 Example Data 2",
+                                                      class = "btn btn-primary", style = "flex: 1;"),
+                                          div(style = "flex: 1;")
+                                      ),
                                       conditionalPanel(
                                         condition = "input.show_upload_panel % 2 == 1",
                                         fileInput("upload_seurat", "Select Seurat Object (.rds)",
@@ -1076,7 +1078,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                       tags$div(
                                         style = "font-size:11px; color:#607080; line-height:1.45; margin-top:8px; padding:8px; background:#f4f7f9; border-radius:6px;",
                                         tags$div(tags$b("Example Data 1:"), " human colorectal cancer Visium; 1,253 spots and 17,529 genes."),
-                                        tags$div(tags$b("Example Data 2:"), " human liver (HCC-cohort tumour-adjacent normal) Visium; 3,656 spots and 22,453 genes."),
+                                        tags$div(tags$b("Example Data 2:"), " human tumour-adjacent normal liver Visium from an HCC immunotherapy cohort (Liu et al., J Hepatol 2023); 3,656 spots and 22,453 genes."),
                                         tags$div(tags$b("Uploads:"), " Local installs accept files up to 500 MB. ",
                                                  "The hosted server may allow less. For large files, please run SpatialROI locally.")
                                       )
@@ -1543,7 +1545,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                    selectizeInput("deg_side_b", "Side B:", choices = NULL,
                                                   options = list(placeholder = "ROI/group, or Rest of tissue")),
                                    tags$p(style = "font-size:11px; color:#7f8c8d; margin:-8px 0 6px 0;",
-                                          "Overlapping regions: shared spots are excluded from both sides."),
+                                          "Non-overlapping regions are recommended; for overlapping regions, shared spots are excluded from both sides."),
                                    # ⚙ Advanced settings (collapsed) — DE test + thresholds (Reviewer 2, item 3).
                                    tags$details(style = "margin:6px 0;",
                                      tags$summary(style = "cursor:pointer; font-weight:600; color:#2c3e50;",
@@ -1586,7 +1588,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                      br(),
                                      downloadButton("dl_deg", "Download DEG table (.csv)", class = "btn btn-warning btn-block"),
                                      tags$p(style = "font-size:11px; color:#7f8c8d; margin-top:5px;",
-                                            "Uses your Advanced Settings. Can be uploaded to Multi-Sample.")
+                                            "Filtered table using your Advanced Settings. A one-region-vs-rest DEG table can be uploaded to Multi-Sample.")
                                  )
                                )
                       ),
@@ -1625,7 +1627,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                    selectizeInput("violin_side_b", "Side B:", choices = NULL,
                                                   options = list(placeholder = "ROI/group, or Rest of tissue")),
                                    tags$p(style = "font-size:11px; color:#7f8c8d; margin:-8px 0 6px 0;",
-                                          "Overlapping regions: shared spots are excluded from both sides."),
+                                          "Non-overlapping regions are recommended; for overlapping regions, shared spots are excluded from both sides."),
                                    selectInput("violin_stat_test", "Test:",
                                                choices = c("Wilcoxon" = "wilcox", "t-test" = "ttest"),
                                                selected = "wilcox"),
@@ -1715,12 +1717,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                             tags$div(style = "background:linear-gradient(135deg,#0072B5 0%,#E18727 100%); color:white; padding:22px 24px; border-radius:12px; margin-bottom:20px;",
                               tags$h1(style = "margin:0 0 8px 0; font-size:26px; font-weight:bold;", "🧩 Multi-Sample"),
                               tags$p(style = "margin:0; font-size:15px; line-height:1.6; opacity:.97;",
-                                "Compare ROI-versus-rest DEG results across tissues without pooling expression matrices. Tables may come from SpatialROI or another compatible DEG workflow."),
-                              tags$p(style = "margin:10px 0 0 0; font-size:14px; line-height:1.6; opacity:.97;",
-                                "“Load example tables” loads three bundled ROI-versus-rest tables from independent sections — ",
-                                "01_CRC_TLS_ROI_vs_rest.csv, 02_P2N_liver_TLS_ROI_vs_rest.csv and 03_HCC_liver_TLS_ROI_vs_rest.csv — ",
-                                "for demonstration. To test the whole workflow yourself: load Example Data 1 (CRC) and Example Data 2 (liver) ",
-                                "from the Data page, draw a region on each, export both DEG tables, and upload them here.")
+                                "Compare ROI-versus-rest DEG results across tissues without pooling expression matrices. Tables may come from SpatialROI or another compatible DEG workflow.")
                             ),
 
                             # ── 1. Load signatures ────────────────────────────────────────
@@ -1734,6 +1731,15 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                                class = "btn btn-primary btn-sm"),
                                   actionButton("ms_clear", "Clear all", class = "btn btn-default btn-sm"),
                                   tags$span(style = "font-size:13px; color:#7f8c8d;", textOutput("ms_status", inline = TRUE))),
+                              tags$div(style = "font-size:12px; color:#5a6b7b; line-height:1.7; margin:0 0 8px 0;",
+                                tags$div("“Load example tables” loads three bundled ROI-versus-rest tables from independent sections:"),
+                                tags$div(tags$b("01_CRC_TLS_ROI_vs_rest.csv"), " — colorectal cancer demo section (Example Data 1)"),
+                                tags$div(tags$b("02_P2N_liver_TLS_ROI_vs_rest.csv"), " — HCC-adjacent normal liver (Example Data 2)"),
+                                tags$div(tags$b("03_HCC_liver_TLS_ROI_vs_rest.csv"), " — HCC tumour leading edge (Wu et al., Sci Adv 2021)"),
+                                tags$div(style = "margin-top:6px;",
+                                  tags$b("To test the whole workflow yourself:"),
+                                  " load Example Data 1 (CRC) and Example Data 2 (liver) from the Data page, draw a region on each, export both DEG tables, and upload them here.")
+                              ),
                               div(style = "max-height:240px; overflow-y:auto;", tableOutput("ms_table")),
                               tags$p(style = "font-size:11px; color:#7f8c8d; margin-top:8px;",
                                 "At least two ROI tables are required. Adding more tables typically reduces the number of genes shared across all of them. Multiple ROIs from one patient are allowed, but they are not independent biological replicates."),
