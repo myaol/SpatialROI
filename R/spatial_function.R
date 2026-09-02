@@ -1058,6 +1058,8 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                       div(style = "display: flex; gap: 10px; margin-bottom: 15px;",
                                           actionButton("use_example_data", "📊 Use Example Data",
                                                       class = "btn btn-primary", style = "flex: 1;"),
+                                          actionButton("use_example_data2", "🧬 Demo 2: Liver",
+                                                      class = "btn btn-primary", style = "flex: 1;"),
                                           actionButton("show_upload_panel", "📤 Upload .rds",
                                                       class = "btn btn-info", style = "flex: 1;")
                                       ),
@@ -1728,8 +1730,10 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                               tags$p(style = "font-size:11px; color:#7f8c8d; margin:-4px 0 8px 0;",
                                 "\u201cLoad example tables\u201d loads three bundled ROI-versus-rest tables from independent sections \u2014 ",
                                 tags$b("01_CRC_TLS_ROI_vs_rest.csv"), ", ",
-                                tags$b("02_HCC_liver_TLS_ROI_vs_rest.csv"), " and ",
-                                tags$b("03_P2N_liver_TLS_ROI_vs_rest.csv"), " \u2014 for demonstration."),
+                                tags$b("02_P2N_liver_TLS_ROI_vs_rest.csv"), " and ",
+                                tags$b("03_HCC_liver_TLS_ROI_vs_rest.csv"), " \u2014 for demonstration. ",
+                                "To test the whole workflow yourself: load the CRC example and Demo 2 (liver) ",
+                                "from the Data page, draw a region on each, export both DEG tables, and upload them here."),
                               div(style = "max-height:240px; overflow-y:auto;", tableOutput("ms_table")),
                               tags$p(style = "font-size:11px; color:#7f8c8d; margin-top:8px;",
                                 "At least two ROI tables are required. Adding more tables typically reduces the number of genes shared across all of them. Multiple ROIs from one patient are allowed, but they are not independent biological replicates."),
@@ -2677,6 +2681,44 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         removeNotification(id = "load_seurat")
         shinyjs::runjs("$('#loading_overlay').removeClass('active');")
         showNotification(paste("Error loading example data:", e$message),
+                         type = "error", duration = 10)
+      })
+    })
+
+    # Demo 2: the bundled liver section (HCC-cohort adjacent-normal, P2N).
+    # Same load path as the primary example; its bundled multi-sample table
+    # 02_P2N_liver_TLS_ROI_vs_rest.csv was exported from this object, so a
+    # reviewer can draw an ROI here, export a table, and reproduce it.
+    observeEvent(input$use_example_data2, {
+      shinyjs::runjs("
+        $('#loading_message').text('Loading demo 2 (liver)...');
+        $('#loading_overlay').addClass('active');
+      ")
+      showNotification("Loading demo 2 (liver)...", type = "message",
+                       duration = NULL, id = "load_seurat")
+      Sys.sleep(0.3)
+
+      tryCatch({
+        example_path <- .sr_extdata("P2N_Spatial_slim.rds")
+        if (example_path == "" || !file.exists(example_path)) {
+          example_path <- file.path("inst", "extdata", "P2N_Spatial_slim.rds")
+        }
+        if (!file.exists(example_path)) {
+          stop("Demo 2 dataset not found on the server (expected inst/extdata/P2N_Spatial_slim.rds).")
+        }
+
+        new_seurat <- readRDS(example_path)
+        new_seurat <- tryCatch(UpdateSeuratObject(new_seurat), error = function(e) new_seurat)
+
+        if (!inherits(new_seurat, "Seurat")) stop("Demo 2 dataset is not a valid Seurat object.")
+        if (length(new_seurat@images) == 0)  stop("Demo 2 dataset has no spatial images.")
+
+        current_sample_name("P2N_Spatial_slim")
+        apply_loaded_seurat(new_seurat)
+      }, error = function(e) {
+        removeNotification(id = "load_seurat")
+        shinyjs::runjs("$('#loading_overlay').removeClass('active');")
+        showNotification(paste("Error loading demo 2:", e$message),
                          type = "error", duration = 10)
       })
     })
