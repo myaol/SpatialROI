@@ -1078,7 +1078,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                       tags$div(
                                         style = "font-size:11px; color:#607080; line-height:1.45; margin-top:8px; padding:8px; background:#f4f7f9; border-radius:6px;",
                                         tags$div(tags$b("Example Data 1:"), " human colorectal cancer Visium; 1,253 spots and 17,529 genes."),
-                                        tags$div(tags$b("Example Data 2:"), " human tumour-adjacent normal liver Visium from an HCC immunotherapy cohort (Liu et al., J Hepatol 2023); 3,656 spots and 22,453 genes."),
+                                        tags$div(tags$b("Example Data 2:"), " human tumour-adjacent normal liver Visium; 3,656 spots and 22,453 genes."),
                                         tags$div(tags$b("Uploads:"), " Local installs accept files up to 500 MB. ",
                                                  "The hosted server may allow less. For large files, please run SpatialROI locally.")
                                       )
