@@ -56,10 +56,17 @@ quality-filtered and log-normalised on load.
   must retain a Visium spatial image and tissue coordinates. Raw input must be a
   SpaceRanger output bundle containing the filtered feature-barcode matrix and
   `spatial/` files.
+- **Other spatial transcriptomics platforms are not currently supported.** Seurat
+  can represent data from many spatial technologies, but representation in a
+  Seurat object does not imply compatibility with SpatialROI: imaging-based
+  platforms (Xenium, CosMx, MERSCOPE), Slide-seq, and Visium HD bin structures
+  have different data structures and are not validated here. The app stops with
+  an explicit message when the uploaded spatial image is not recognized as
+  Visium.
 - The local Shiny request limit is **500 MB**. A hosted reverse proxy may impose a
   lower limit and return HTTP 413 before the request reaches SpatialROI. Use local
   analysis for large objects.
-- RDS files expand in memory. The 33-MB example requires approximately 300 MB after
+- RDS files expand in memory. The 32-MB example requires approximately 430 MB after
   loading; memory requirements increase with spots, assays, and image size.
 
 ### Bundled example dataset
@@ -140,6 +147,29 @@ Deployment owners can use [`deployment/README.md`](deployment/README.md) and the
 read-only verification script to reproduce the validated `spacexr` API and check
 the packaged example, reference, and Hallmark resources.
 
+
+---
+
+## Limitations and Future Work
+
+- **Platform scope.** SpatialROI currently supports 10x Genomics Visium.
+  Extending support to additional spatial transcriptomics platforms, including
+  Visium HD, Xenium, CosMx, MERSCOPE, and Slide-seq, is a potential direction
+  for future development and would require platform-specific implementation and
+  validation.
+- **Single-section analysis.** Interactive ROI drawing and most downstream
+  analyses are performed on one image-aligned tissue section at a time. The
+  Multi-Sample module supports cross-section comparison using ROI-versus-rest
+  DEG results without pooling raw expression matrices.
+- **Cross-sample interpretation.** Multi-Sample comparisons are descriptive and
+  may be influenced by batch effects, patient-level differences, tissue
+  composition, and ROI annotation.
+- **Statistical interpretation.** Spot-level statistical tests describe
+  within-section differences and should not be interpreted as independent
+  patient-level replication.
+- **Large datasets.** Local use is recommended for large or unpublished
+  datasets, particularly when server upload or memory limits may become
+  restrictive.
 
 ---
 
