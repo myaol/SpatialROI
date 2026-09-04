@@ -2397,6 +2397,22 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                    "validated here. The data has been loaded, but interpret every ",
                    "result with that in mind."),
             type = "warning", duration = NULL, id = "platform_warning")
+        } else if (ncol(new_seurat) > 15000) {
+          # Visium HD binned output loads as VisiumV2 - the same image class as
+          # standard Visium read by Seurat 5 - so the class alone cannot tell
+          # them apart. Unit count can: a standard Visium section carries at
+          # most 4,992 spots (14,336 on the 11 mm CytAssist slide), so anything
+          # far above that is binned HD data.
+          showNotification(
+            paste0("This object has ", format(ncol(new_seurat), big.mark = ","),
+                   " spatial units, far more than a standard Visium section ",
+                   "(up to 14,336). This looks like Visium HD binned data, which ",
+                   "SpatialROI does not validate: the 6-neighbour graph, QC ",
+                   "thresholds and RCTD deconvolution all assume 55 \u00b5m Visium ",
+                   "spots, and interactive performance degrades at this scale. ",
+                   "The data has been loaded, but interpret every result with ",
+                   "that in mind."),
+            type = "warning", duration = NULL, id = "platform_warning")
         } else {
           removeNotification(id = "platform_warning")
         }
