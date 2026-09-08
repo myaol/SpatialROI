@@ -13,10 +13,19 @@
   normalizePath(getwd(), mustWork = FALSE)
 }
 .sr_extdata <- function(...) {
+  # An explicitly set option wins over an installed copy of the package. It used
+  # to be the other way round, which meant a stale installed SpatialROI silently
+  # shadowed the data being served: the app kept loading the installed package's
+  # old example tables even though the deployment folder held newer ones, and
+  # nothing reported a conflict because both paths exist and both are readable.
+  opt <- getOption("SpatialROI.extdata", "")
+  if (nzchar(opt)) {
+    for (cand in c(file.path(opt, "extdata", ...), file.path(opt, ...)))
+      if (file.exists(cand)) return(cand)
+  }
   p <- system.file("extdata", ..., package = "SpatialROI")
   if (nzchar(p) && file.exists(p)) return(p)
-  for (base in c(getOption("SpatialROI.extdata", ""), .sr_script_dir(),
-                 file.path(getwd(), "inst"), getwd())) {
+  for (base in c(.sr_script_dir(), file.path(getwd(), "inst"), getwd())) {
     if (!nzchar(base)) next
     cand <- file.path(base, "extdata", ...)
     if (file.exists(cand)) return(cand)
@@ -903,6 +912,11 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                                  placeholder = "e.g. Tumor edge", width = "100%")),
                                    actionButton("save_roi_btn", "➕ Save region",
                                                 class = "btn btn-primary", style = "width:100%; font-weight:700;"),
+                                   # One control for both sources: pick a bundled TLS ROI or supply
+                                   # your own spot-ID list. It lives in this fixed-width column on
+                                   # purpose: the dock wraps with wrap-reverse, so anything that
+                                   # widens the card pushes "Show on map" up over the slide.
+                                   uiOutput("roi_load_ui"),
                                    uiOutput("roi_chips")
                                  ),
                                  tags$div(style = "width:1px; align-self:stretch; background:#e5e7eb;"),
@@ -1062,9 +1076,10 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                                       class = "btn btn-info", style = "flex: 1;")
                                       ),
                                       div(style = "display: flex; gap: 10px; margin-bottom: 15px;",
-                                          actionButton("use_example_data2", "🧬 Example Data 2",
+                                          actionButton("use_case_study1", "🧬 Case Study 1 (CRLM)",
                                                       class = "btn btn-primary", style = "flex: 1;"),
-                                          div(style = "flex: 1;")
+                                          actionButton("use_case_study2", "🔬 Case Study 2 (OSCC)",
+                                                      class = "btn btn-primary", style = "flex: 1;")
                                       ),
                                       conditionalPanel(
                                         condition = "input.show_upload_panel % 2 == 1",
@@ -1078,7 +1093,8 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                       tags$div(
                                         style = "font-size:11px; color:#607080; line-height:1.45; margin-top:8px; padding:8px; background:#f4f7f9; border-radius:6px;",
                                         tags$div(tags$b("Example Data 1:"), " human colorectal cancer Visium; 1,253 spots and 17,529 genes."),
-                                        tags$div(tags$b("Example Data 2:"), " human tumour-adjacent normal liver Visium; 3,656 spots and 22,453 genes."),
+                                        tags$div(tags$b("Case Study 1:"), " colorectal cancer liver metastasis Visium (OEP00001756); 3,721 spots, 18,040 genes. Tumour-normal interface, group-versus-group."),
+                                        tags$div(tags$b("Case Study 2:"), " oral squamous cell carcinoma Visium (GSE208253); 1,903 spots, 36,601 genes. Intra-tumoral heterogeneity, ROI-versus-ROI."),
                                         tags$div(tags$b("Uploads:"), " Local installs accept files up to 500 MB. ",
                                                  "The hosted server may allow less. For large files, please run SpatialROI locally.")
                                       )
@@ -1717,7 +1733,8 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                             tags$div(style = "background:linear-gradient(135deg,#0072B5 0%,#E18727 100%); color:white; padding:22px 24px; border-radius:12px; margin-bottom:20px;",
                               tags$h1(style = "margin:0 0 8px 0; font-size:26px; font-weight:bold;", "🧩 Multi-Sample"),
                               tags$p(style = "margin:0; font-size:15px; line-height:1.6; opacity:.97;",
-                                "Compare ROI-versus-rest DEG results across tissues without pooling expression matrices. Tables may come from SpatialROI or another compatible DEG workflow.")
+                                "Compare ROI-versus-rest DEG results across tissues without pooling expression matrices. Tables may come from SpatialROI or another compatible DEG workflow. ",
+                                "Comparisons are ROI-based: tables may describe different ROIs across samples, or different ROIs within one sample.")
                             ),
 
                             # ── 1. Load signatures ────────────────────────────────────────
@@ -1730,15 +1747,21 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                   actionButton("ms_load_examples", "Load example tables",
                                                class = "btn btn-primary btn-sm"),
                                   actionButton("ms_clear", "Clear all", class = "btn btn-default btn-sm"),
+                                  downloadButton("dl_example_roi", "⬇ Example ROIs (.zip)",
+                                                 class = "btn btn-default btn-sm"),
                                   tags$span(style = "font-size:13px; color:#7f8c8d;", textOutput("ms_status", inline = TRUE))),
                               tags$div(style = "font-size:12px; color:#5a6b7b; line-height:1.7; margin:0 0 8px 0;",
                                 tags$div("“Load example tables” loads three bundled TLS-signature ROI-versus-rest tables from independent sections:"),
-                                tags$div(tags$b("01_CRC_TLS_ROI_vs_rest.csv"), " — TLS ROI drawn on Example Data 1 (CRC)"),
-                                tags$div(tags$b("02_P2N_liver_TLS_ROI_vs_rest.csv"), " — TLS ROI drawn on Example Data 2 (liver)"),
-                                tags$div(tags$b("03_HCC_liver_TLS_ROI_vs_rest.csv"), " — TLS ROI drawn on an HCC tumour leading-edge section (liver)"),
+                                tags$div(tags$b("01_CRC_TLS_ROI_vs_rest.csv"), " — TLS ROI on Example Data 1 (CRC)"),
+                                tags$div(tags$b("02_P2N_liver_TLS_ROI_vs_rest.csv"), " — TLS ROI on a tumour-adjacent normal liver section; dataset available on GitHub"),
+                                tags$div(tags$b("03_CRLM_liver_TLS_ROI_vs_rest.csv"), " — TLS ROI on Case Study 1 (CRLM)"),
                                 tags$div(style = "margin-top:6px;",
                                   tags$b("To redo this workflow yourself:"),
-                                  " load Example Data 1 (CRC) and Example Data 2 (liver) from the Data page, draw a TLS-like region on each, export both DEG tables, and upload them here.")
+                                  " load a dataset, pick its TLS region under ", tags$b("⬆ Load ROI (.csv)"),
+                                  " on the map, run that ROI versus Rest, and download the DEG table. ",
+                                  "Repeat for the other sections, then upload the tables here. ",
+                                  "The P2N liver section is not bundled — download it from GitHub and load it first. ",
+                                  "Your own spot-ID list works too: any .csv with a ", tags$b("spot_id"), " column.")
                               ),
                               div(style = "max-height:240px; overflow-y:auto;", tableOutput("ms_table")),
                               tags$p(style = "font-size:11px; color:#7f8c8d; margin-top:8px;",
@@ -2178,9 +2201,29 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         })
 
         spots_df <- data.frame(spot_id = rownames(coords), stringsAsFactors = FALSE)
+
+        # Everything downstream - the cropped H&E, its leaflet bounds and the ROI
+        # rings - works in low-resolution image pixels, which is what VisiumV1's
+        # imagerow/imagecol already are. Seurat >= 5.1 stores Visium slides as
+        # VisiumV2, whose GetTissueCoordinates returns FULL-resolution pixels
+        # (x = pxl_col_in_fullres, y = pxl_row_in_fullres); left unscaled those
+        # land far outside the image and no spot renders on the slide. The raw
+        # SpaceRanger loader already multiplies by the lowres scale factor, so do
+        # the same here for the .rds path.
+        .lowres_sf <- tryCatch(new_seurat@images[[image_name]]@scale.factors$lowres,
+                               error = function(e) NULL)
+        if (is.null(.lowres_sf) || !is.numeric(.lowres_sf) ||
+            !is.finite(.lowres_sf) || .lowres_sf <= 0) .lowres_sf <- 1
+
         if ("imagerow" %in% colnames(coords) && "imagecol" %in% colnames(coords)) {
           spots_df$x <- coords$imagecol
           spots_df$y <- coords$imagerow
+        } else if ("pxl_col_in_fullres" %in% colnames(coords)) {
+          spots_df$x <- coords$pxl_col_in_fullres * .lowres_sf
+          spots_df$y <- coords$pxl_row_in_fullres * .lowres_sf
+        } else if (all(c("x", "y") %in% colnames(coords))) {
+          spots_df$x <- coords$x * .lowres_sf
+          spots_df$y <- coords$y * .lowres_sf
         } else if ("row" %in% colnames(coords) && "col" %in% colnames(coords)) {
           spots_df$x <- coords$col
           spots_df$y <- coords$row
@@ -2707,43 +2750,58 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
       })
     })
 
-    # Demo 2: the bundled liver section (HCC-cohort adjacent-normal, P2N).
-    # Same load path as the primary example; its bundled multi-sample table
-    # 02_P2N_liver_TLS_ROI_vs_rest.csv was exported from this object, so a
-    # reviewer can draw an ROI here, export a table, and reproduce it.
-    observeEvent(input$use_example_data2, {
-      shinyjs::runjs("
-        $('#loading_message').text('Loading Example Data 2...');
-        $('#loading_overlay').addClass('active');
-      ")
-      showNotification("Loading Example Data 2...", type = "message",
-                       duration = NULL, id = "load_seurat")
-      Sys.sleep(0.3)
+    # The two bundled case studies from the supplementary material. Both are
+    # slimmed copies of the exact objects the figures were made from: Case Study
+    # 1 drops only SCT scale.data, reductions and graphs (all recomputed by the
+    # clustering tab) and de-duplicates Spatial data, which is a byte-identical
+    # copy of Spatial counts; Case Study 2 is the raw SpaceRanger sample carried
+    # through this app's own QC path. DEG, Moran's I, module scores, PCA and the
+    # RCTD count matrix were verified identical to the originals.
+    load_case_study <- function(file, label, sample_name) {
+      force(file); force(label); force(sample_name)
+      function() {
+        shinyjs::runjs(sprintf("
+          $('#loading_message').text('Loading %s...');
+          $('#loading_overlay').addClass('active');
+        ", label))
+        showNotification(paste0("Loading ", label, "..."), type = "message",
+                         duration = NULL, id = "load_seurat")
+        Sys.sleep(0.3)
 
-      tryCatch({
-        example_path <- .sr_extdata("P2N_Spatial_slim.rds")
-        if (example_path == "" || !file.exists(example_path)) {
-          example_path <- file.path("inst", "extdata", "P2N_Spatial_slim.rds")
-        }
-        if (!file.exists(example_path)) {
-          stop("Demo 2 dataset not found on the server (expected inst/extdata/P2N_Spatial_slim.rds).")
-        }
+        tryCatch({
+          example_path <- .sr_extdata(file)
+          if (example_path == "" || !file.exists(example_path)) {
+            example_path <- file.path("inst", "extdata", file)
+          }
+          if (!file.exists(example_path)) {
+            stop(label, " not found on the server (expected inst/extdata/", file, ").")
+          }
 
-        new_seurat <- readRDS(example_path)
-        new_seurat <- tryCatch(UpdateSeuratObject(new_seurat), error = function(e) new_seurat)
+          new_seurat <- readRDS(example_path)
+          new_seurat <- tryCatch(UpdateSeuratObject(new_seurat),
+                                 error = function(e) new_seurat)
 
-        if (!inherits(new_seurat, "Seurat")) stop("Demo 2 dataset is not a valid Seurat object.")
-        if (length(new_seurat@images) == 0)  stop("Demo 2 dataset has no spatial images.")
+          if (!inherits(new_seurat, "Seurat")) stop(label, " is not a valid Seurat object.")
+          if (length(new_seurat@images) == 0)  stop(label, " has no spatial images.")
 
-        current_sample_name("P2N_Spatial_slim")
-        apply_loaded_seurat(new_seurat)
-      }, error = function(e) {
-        removeNotification(id = "load_seurat")
-        shinyjs::runjs("$('#loading_overlay').removeClass('active');")
-        showNotification(paste("Error loading demo 2:", e$message),
-                         type = "error", duration = 10)
-      })
-    })
+          current_sample_name(sample_name)
+          apply_loaded_seurat(new_seurat)
+        }, error = function(e) {
+          removeNotification(id = "load_seurat")
+          shinyjs::runjs("$('#loading_overlay').removeClass('active');")
+          showNotification(paste0("Error loading ", label, ": ", e$message),
+                           type = "error", duration = 10)
+        })
+      }
+    }
+
+    .load_cs1 <- load_case_study("case_study1_CRLM.rds",
+                                 "Case Study 1 (CRLM)", "CaseStudy1_CRLM")
+    .load_cs2 <- load_case_study("case_study2_OSCC.rds",
+                                 "Case Study 2 (OSCC)", "CaseStudy2_OSCC")
+
+    observeEvent(input$use_case_study1, { .load_cs1() })
+    observeEvent(input$use_case_study2, { .load_cs2() })
 
     # Selection summary
     output$selection_summary <- renderText({
@@ -5354,6 +5412,168 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
     # ROIs are first-class named regions; Groups are named collections of ROIs.
 
     # Save the currently drawn region as a named ROI.
+    # ── Restore a named ROI from a spot-ID list ──────────────────────────────
+    # A drawn polygon lives only in the browser session, so a published region
+    # could not be reproduced by a reader. Importing the spot IDs rebuilds the
+    # ROI exactly; it carries no rings, so the map highlights its spots without
+    # an outline, and every downstream analysis treats it as a normal ROI.
+    # A drawn ROI carries the polygon the user traced; an imported one has only
+    # spot IDs, so "Show ROI contours" had nothing to draw. Buffering each spot by
+    # ~0.75 x the spot pitch and unioning traces the real, possibly non-convex
+    # outline (a convex hull would bridge concavities), and st_simplify keeps the
+    # vertex count reasonable for leaflet.
+    rings_from_spots <- function(ids) {
+      idx <- match(ids, spots_sf$spot_id)
+      idx <- idx[!is.na(idx)]
+      if (length(idx) < 3) return(list())
+      px <- spots_sf$x[idx]; py <- spots_sf$y[idx]
+      tryCatch({
+        # Pitch only needs an estimate, and dist() is O(n^2) - subsample so a
+        # several-thousand-spot ROI does not stall the import.
+        k <- if (length(px) > 400) sample.int(length(px), 400) else seq_along(px)
+        dm <- as.matrix(stats::dist(cbind(px[k], py[k]))); diag(dm) <- Inf
+        pitch <- stats::median(apply(dm, 1, min))
+        if (!is.finite(pitch) || pitch <= 0) return(list())
+        pts <- sf::st_as_sf(data.frame(x = px, y = py), coords = c("x", "y"))
+        u <- sf::st_simplify(sf::st_union(sf::st_buffer(pts, pitch * 0.75)),
+                             dTolerance = pitch / 10)
+        out <- list()
+        for (pg in sf::st_cast(sf::st_geometry(u), "POLYGON", warn = FALSE)) {
+          ring <- pg[[1]]
+          if (is.matrix(ring) && nrow(ring) >= 3)
+            out[[length(out) + 1]] <- list(lng = ring[, 1], lat = ring[, 2])
+        }
+        out
+      }, error = function(e) list())
+    }
+
+    # ── Load ROI: bundled TLS regions, or the user's own spot-ID list ────────
+    # Labels and paths are read from the files themselves (each carries `sample`,
+    # `roi` and its rows), so adding or renaming a bundled ROI needs no code
+    # change here.
+    bundled_roi_choices <- reactive({
+      d <- .example_roi_dir()
+      if (!dir.exists(d)) return(character(0))
+      pretty <- c(Example_Visium  = "CRC (Example Data 1)",
+                  P2N_Spatial     = "P2N liver (upload dataset first)",
+                  CaseStudy1_CRLM = "CRLM (Case Study 1)",
+                  CaseStudy2_OSCC = "OSCC (Case Study 2)")
+      out <- character(0)
+      for (f in file.path(d, .example_roi_files)) {
+        if (!file.exists(f)) next
+        info <- tryCatch({
+          x <- utils::read.csv(f, stringsAsFactors = FALSE)
+          smp <- if ("sample" %in% colnames(x)) trimws(as.character(x$sample[1])) else ""
+          lab <- if (nzchar(smp) && smp %in% names(pretty)) pretty[[smp]] else smp
+          paste0(lab, " — ", nrow(x), " spots")
+        }, error = function(e) NULL)
+        if (!is.null(info)) out[[info]] <- f
+      }
+      out
+    })
+
+    output$roi_load_ui <- renderUI({
+      ch <- bundled_roi_choices()
+      tagList(
+        div(style = "font-size:12px;",
+            # Deliberately starts empty. Defaulting to the ROI that matches the
+            # loaded section made the region appear on its own the moment a
+            # dataset opened, which is a selection the reader never made.
+            selectInput("roi_source", "⬆ Load ROI (.csv)",
+                        choices  = c("— select an ROI —" = "", ch,
+                                     "User defined — upload my own .csv" = "__upload__"),
+                        selected = "", width = "100%")),
+        conditionalPanel(
+          condition = "input.roi_source == '__upload__'",
+          div(style = "margin-top:-10px; margin-bottom:-12px;",
+              fileInput("upload_roi_csv", NULL, accept = c(".csv", ".txt", ".tsv"),
+                        buttonLabel = "Choose file",
+                        placeholder = "spot_id list", width = "100%")))
+      )
+    })
+
+    # Picking an entry loads that ROI. This fires only on a real user choice: the
+    # dropdown is rendered with no selection, so nothing loads until asked.
+    observeEvent(input$roi_source, {
+      f <- input$roi_source
+      if (is.null(f) || !nzchar(f) || identical(f, "__upload__")) return()
+      if (!file.exists(f)) {
+        showNotification("That bundled ROI file is not available on this server.",
+                         type = "error", duration = 8)
+        return()
+      }
+      tryCatch({
+        got <- read_roi_ids(f)
+        nm  <- if (!is.na(got$name)) got$name else tools::file_path_sans_ext(basename(f))
+        add_roi_from_ids(got$ids, nm, paste0("the bundled ROI (", basename(f), ")"))
+      }, error = function(e)
+        showNotification(paste("Could not load that ROI:", e$message),
+                         type = "error", duration = 10))
+    }, ignoreInit = TRUE)
+
+    add_roi_from_ids <- function(ids, fallback_name, source_label) {
+      ids <- unique(trimws(as.character(ids)))
+      ids <- ids[nzchar(ids)]
+      if (length(ids) == 0) stop("No spot IDs found in that file.")
+      hit <- intersect(ids, spots_sf$spot_id)
+      if (length(hit) == 0)
+        stop("None of the ", length(ids), " spot IDs are present in the loaded section. ",
+             "Load the dataset this ROI was drawn on first.")
+      nm <- fallback_name
+      if (!is.null(rois()[[nm]])) {
+        i <- 2L
+        while (!is.null(rois()[[paste0(nm, " (", i, ")")]])) i <- i + 1L
+        nm <- paste0(nm, " (", i, ")")
+      }
+      save_roi(nm, hit, rings_from_spots(hit))
+      showNotification(
+        sprintf("Loaded ROI \u201c%s\u201d from %s: %d of %d spots matched.",
+                nm, source_label, length(hit), length(ids)),
+        type = "message", duration = 6)
+    }
+
+    # External tools rarely export this app's ROI format, so accept the minimum
+    # that identifies a region: one column of spot IDs. Comma-, tab- or
+    # semicolon-separated, with or without a header row. A `roi` column, when
+    # present, names the region; everything else is optional.
+    read_roi_ids <- function(path) {
+      l1 <- tryCatch(readLines(path, n = 1, warn = FALSE), error = function(e) "")
+      sep <- if (grepl("\t", l1)) "\t" else if (grepl(";", l1) && !grepl(",", l1)) ";" else ","
+      d <- utils::read.table(path, sep = sep, header = TRUE, stringsAsFactors = FALSE,
+                             check.names = FALSE, quote = "\"'", comment.char = "",
+                             colClasses = "character")
+      known <- c("spot_id", "spot", "spotid", "barcode", "barcodes",
+                 "cell", "cell_id", "cellid")
+      cn <- tolower(gsub("[^A-Za-z_]", "", colnames(d)))
+      col <- colnames(d)[cn %in% known][1]
+
+      # A bare list of barcodes with no header reads as a one-column frame whose
+      # "column name" is actually the first barcode. Recover it, rather than
+      # silently dropping one spot from the region.
+      if (is.na(col) && ncol(d) == 1 && !is.null(spots_sf) &&
+          colnames(d)[1] %in% spots_sf$spot_id)
+        return(list(ids = c(colnames(d)[1], d[[1]]), name = NA_character_))
+
+      if (is.na(col)) {
+        if (!ncol(d)) stop("That file has no columns to read.")
+        col <- colnames(d)[1]
+      }
+      nm <- if ("roi" %in% colnames(d) && length(unique(d$roi)) == 1)
+              as.character(d$roi[1]) else NA_character_
+      list(ids = d[[col]], name = nm)
+    }
+
+    observeEvent(input$upload_roi_csv, {
+      f <- input$upload_roi_csv
+      if (is.null(f)) return()
+      tryCatch({
+        got <- read_roi_ids(f$datapath)
+        nm  <- if (!is.na(got$name)) got$name else tools::file_path_sans_ext(f$name)
+        add_roi_from_ids(got$ids, nm, f$name)
+      }, error = function(e)
+        showNotification(paste("Could not load ROI:", e$message), type = "error", duration = 10))
+    })
+
     observeEvent(input$save_roi_btn, {
       sel <- selected_spots()
       if (length(sel) == 0) {
@@ -6605,6 +6825,15 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
       current_values(NULL)
       is_categorical(FALSE)
       showing_gene_set(FALSE)
+      # The cluster overlay is painted by its own observer, which also adds the
+      # "Clusters" leaflet legend. Clearing only the feature overlay repainted
+      # the spots but left that legend stranded on the map. Drop it here rather
+      # than relying on updateCheckboxInput alone: that only takes effect after
+      # the browser echoes the new value back, so the legend would linger for a
+      # round trip. clearControls() is safe to call unconditionally because this
+      # is the only addLegend() in the app.
+      updateCheckboxInput(session, "show_clusters", value = FALSE)
+      leafletProxy("map") %>% clearControls()
       update_map_colors()
       showNotification("Map overlay cleared.", type = "message", duration = 3)
     })
@@ -6880,6 +7109,32 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
       ms_load_tables(data.frame(name = basename(fs), datapath = fs,
                                 stringsAsFactors = FALSE))
     })
+
+    # The three ROIs behind the three example tables, offered next to the tables
+    # they reproduce rather than on the map dock, which is width-constrained.
+    # Zipped so one click yields all three; if the host has no zip binary the
+    # handler falls back to the single CRC file rather than erroring.
+    .example_roi_files <- c("CRC_TLS_41spots.csv", "P2N_TLS_157spots.csv",
+                            "CRLM_TLS_86spots.csv")
+    .example_roi_dir <- function() {
+      d <- .sr_extdata("example_rois")
+      if (d == "" || !dir.exists(d)) d <- file.path("inst", "extdata", "example_rois")
+      d
+    }
+    output$dl_example_roi <- downloadHandler(
+      filename = function() "SpatialROI_example_ROIs.zip",
+      content = function(file) {
+        d  <- .example_roi_dir()
+        fs <- file.path(d, .example_roi_files)
+        fs <- fs[file.exists(fs)]
+        if (length(fs) == 0) stop("The bundled example ROI files were not found.")
+        ok <- tryCatch({
+          utils::zip(zipfile = file, files = fs, flags = "-j9X")
+          file.exists(file) && file.info(file)$size > 0
+        }, error = function(e) FALSE, warning = function(w) FALSE)
+        if (!ok) file.copy(fs[1], file, overwrite = TRUE)
+      }
+    )
 
     observeEvent(input$ms_clear, {
       ms_sigs(list()); ms_gene_rv(NULL); ms_path_rv(NULL)
