@@ -8,3 +8,4 @@
 ^HANDOFF\.md$
 ^HANDOFF_CURRENT_.*\.md$
 ^deployment$
+^datasets$
