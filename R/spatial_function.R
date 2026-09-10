@@ -761,6 +761,21 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
           transform: scale(1.05);
           box-shadow: 0 6px 20px rgba(0,0,0,0.4);
         }
+
+        /* The ROI import is instant, so Shiny's upload-complete bar reads as a
+           step that stalled rather than one that finished. */
+        #upload_roi_csv_progress { display: none !important; }
+
+        /* An ROI can be given any name, and a long one widened the region
+           selector until the dock wrapped above the slide. Truncate instead. */
+        #roi_show_filter + .selectize-control .selectize-input,
+        #roi_show_filter + .selectize-control .selectize-input > div,
+        #roi_show_filter + .selectize-control .selectize-dropdown-content .option {
+          max-width: 170px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
       "))
     ),
 
@@ -912,11 +927,13 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                                  placeholder = "e.g. Tumor edge", width = "100%")),
                                    actionButton("save_roi_btn", "➕ Save region",
                                                 class = "btn btn-primary", style = "width:100%; font-weight:700;"),
-                                   # One control for both sources: pick a bundled TLS ROI or supply
-                                   # your own spot-ID list. It lives in this fixed-width column on
-                                   # purpose: the dock wraps with wrap-reverse, so anything that
-                                   # widens the card pushes "Show on map" up over the slide.
-                                   uiOutput("roi_load_ui"),
+                                   # Import a region from a spot-ID list. Kept in this fixed-width
+                                   # column on purpose: the dock wraps with wrap-reverse, so anything
+                                   # that widens the card pushes "Show on map" up over the slide.
+                                   tags$div(style = "margin-bottom:-22px;",
+                                     fileInput("upload_roi_csv", NULL, accept = c(".csv", ".txt", ".tsv"),
+                                               buttonLabel = "⬆ Load ROI index (.csv)",
+                                               placeholder = "spot_id list", width = "100%")),
                                    uiOutput("roi_chips")
                                  ),
                                  tags$div(style = "width:1px; align-self:stretch; background:#e5e7eb;"),
@@ -938,6 +955,8 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                           # Save the region picked under "Show on map" as a Seurat subset.
                           tags$div(style = "display:flex; gap:8px; align-items:center; border-top:1px solid #eceff3; padding-top:6px;",
                             downloadButton("dl_region_seurat", "⬇ Save region (.rds)",
+                                           class = "btn btn-success btn-sm", style = "white-space:nowrap;"),
+                            downloadButton("dl_region_index", "⬇ Save ROI index (.csv)",
                                            class = "btn btn-success btn-sm", style = "white-space:nowrap;"),
                             tags$span(style = "font-size:11px; color:#7f8c8d; line-height:1.3;",
                                       textOutput("export_region_note", inline = TRUE))
@@ -1066,43 +1085,52 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                                             "10x Visium Raw Output" = "raw"),
                                                 selected = "rds"),
 
-                                    # ── Existing RDS upload ──────────────────────────────────────────
+                                    # ── Seurat object (.rds) ─────────────────────────────────────────
+                                    # Laid out to mirror the raw-output panel below: bundled datasets
+                                    # first, then one file picker and one load button. The old
+                                    # "Upload .rds" toggle button had no counterpart on the raw side.
                                     conditionalPanel(
                                       condition = "input.data_input_type == 'rds'",
                                       div(style = "display: flex; gap: 10px; margin-bottom: 8px;",
-                                          actionButton("use_example_data", "📊 Use Example Data",
+                                          actionButton("use_example_data", "📊 Default Data (CRC)",
                                                       class = "btn btn-primary", style = "flex: 1;"),
-                                          actionButton("show_upload_panel", "📤 Upload .rds",
-                                                      class = "btn btn-info", style = "flex: 1;")
-                                      ),
-                                      div(style = "display: flex; gap: 10px; margin-bottom: 15px;",
                                           actionButton("use_case_study1", "🧬 Case Study 1 (CRLM)",
-                                                      class = "btn btn-primary", style = "flex: 1;"),
+                                                      class = "btn btn-primary", style = "flex: 1;")
+                                      ),
+                                      tags$div(
+                                        style = "font-size:11px; color:#607080; line-height:1.45; margin:8px 0; padding:8px; background:#f4f7f9; border-radius:6px;",
+                                        tags$div(tags$b("Default Data (CRC):"), " human colorectal cancer Visium; 1,253 spots and 17,529 genes."),
+                                        tags$div(tags$b("Case Study 1 (CRLM):"), " colorectal cancer liver metastasis Visium; 3,721 spots and 18,040 genes.")
+                                      ),
+                                      # Mirrors the "How to prepare your zip" box opposite, so both
+                                      # input types state their requirements in the same place.
+                                      tags$div(
+                                        style = "background: #e8f4f8; border-left: 4px solid #0072B5; padding: 10px; margin-bottom: 12px;",
+                                        tags$p(style = "font-size: 11px; color: #555; margin: 0;",
+                                               tags$b("Requirements:"),
+                                               " a Visium Seurat object with a spatial image, tissue-spot coordinates, and log-normalised expression.")
+                                      ),
+                                      fileInput("upload_seurat", "Upload processed Seurat object (.rds)",
+                                                accept = c(".rds")),
+                                      actionButton("load_uploaded_seurat", "Load Seurat Object",
+                                                  class = "btn btn-success btn-block",
+                                                  style = "margin-top: 8px;"),
+                                      tags$p(style = "font-size: 11px; color: #7f8c8d; margin-top: 8px;",
+                                            "⚠️ Loading new data replaces the current analysis. Uploads are limited to 500 MB, ",
+                                            "and the hosted server may allow less. For larger sections, run SpatialROI locally.")
+                                    ),
+
+                                    # ── 10x Visium raw Space Ranger output ───────────────────────────
+                                    conditionalPanel(
+                                      condition = "input.data_input_type == 'raw'",
+                                      div(style = "display: flex; gap: 10px; margin-bottom: 8px;",
                                           actionButton("use_case_study2", "🔬 Case Study 2 (OSCC)",
                                                       class = "btn btn-primary", style = "flex: 1;")
                                       ),
-                                      conditionalPanel(
-                                        condition = "input.show_upload_panel % 2 == 1",
-                                        fileInput("upload_seurat", "Select Seurat Object (.rds)",
-                                                  accept = c(".rds")),
-                                        actionButton("load_uploaded_seurat", "Load Uploaded Data",
-                                                    class = "btn btn-success btn-block"),
-                                        tags$p(style = "font-size: 12px; color: #7f8c8d; margin-top: 5px;",
-                                              "⚠️ Loading new data will replace current analysis")
-                                      ),
                                       tags$div(
-                                        style = "font-size:11px; color:#607080; line-height:1.45; margin-top:8px; padding:8px; background:#f4f7f9; border-radius:6px;",
-                                        tags$div(tags$b("Example Data 1:"), " human colorectal cancer Visium; 1,253 spots and 17,529 genes."),
-                                        tags$div(tags$b("Case Study 1:"), " colorectal cancer liver metastasis Visium (OEP00001756); 3,721 spots, 18,040 genes. Tumour-normal interface, group-versus-group."),
-                                        tags$div(tags$b("Case Study 2:"), " oral squamous cell carcinoma Visium (GSE208253); 1,903 spots, 36,601 genes. Intra-tumoral heterogeneity, ROI-versus-ROI."),
-                                        tags$div(tags$b("Uploads:"), " Local installs accept files up to 500 MB. ",
-                                                 "The hosted server may allow less. For large files, please run SpatialROI locally.")
-                                      )
-                                    ),
-
-                                    # ── NEW: 10x raw upload ──────────────────────────────────────────
-                                    conditionalPanel(
-                                      condition = "input.data_input_type == 'raw'",
+                                        style = "font-size:11px; color:#607080; line-height:1.45; margin:8px 0; padding:8px; background:#f4f7f9; border-radius:6px;",
+                                        tags$div(tags$b("Case Study 2 (OSCC):"), " oral squamous cell carcinoma Visium; 1,903 spots after QC and 36,601 genes.")
+                                      ),
                                       tags$div(
                                         style = "background: #e8f4f8; border-left: 4px solid #0072B5; padding: 10px; margin-bottom: 12px;",
                                         tags$p(style = "font-size: 12px; font-weight: bold;", "📋 How to prepare your zip:"),
@@ -1130,7 +1158,10 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                       ),
                                       actionButton("load_raw_visium", "Load 10x Visium Data",
                                                   class = "btn btn-success btn-block",
-                                                  style = "margin-top: 8px;")
+                                                  style = "margin-top: 8px;"),
+                                      tags$p(style = "font-size: 11px; color: #7f8c8d; margin-top: 8px;",
+                                            "⚠️ Loading new data replaces the current analysis. Uploads are limited to 500 MB, ",
+                                            "and the hosted server may allow less. For larger sections, run SpatialROI locally.")
                                     ),
 
                                     verbatimTextOutput("upload_status")
@@ -1747,8 +1778,6 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                   actionButton("ms_load_examples", "Load example tables",
                                                class = "btn btn-primary btn-sm"),
                                   actionButton("ms_clear", "Clear all", class = "btn btn-default btn-sm"),
-                                  downloadButton("dl_example_roi", "⬇ Example ROIs (.zip)",
-                                                 class = "btn btn-default btn-sm"),
                                   tags$span(style = "font-size:13px; color:#7f8c8d;", textOutput("ms_status", inline = TRUE))),
                               tags$div(style = "font-size:12px; color:#5a6b7b; line-height:1.7; margin:0 0 8px 0;",
                                 tags$div("“Load example tables” loads three bundled TLS-signature ROI-versus-rest tables from independent sections:"),
@@ -1757,10 +1786,10 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                 tags$div(tags$b("03_CRLM_liver_TLS_ROI_vs_rest.csv"), " — TLS ROI on Case Study 1 (CRLM)"),
                                 tags$div(style = "margin-top:6px;",
                                   tags$b("To redo this workflow yourself:"),
-                                  " load a dataset, pick its TLS region under ", tags$b("⬆ Load ROI (.csv)"),
+                                  " load a dataset, import its TLS spot index with ", tags$b("⬆ Load ROI index (.csv)"),
                                   " on the map, run that ROI versus Rest, and download the DEG table. ",
                                   "Repeat for the other sections, then upload the tables here. ",
-                                  "The P2N liver section is not bundled — download it from GitHub and load it first. ",
+                                  "The spot-index files and the P2N liver section are in the GitHub repository. ",
                                   "Your own spot-ID list works too: any .csv with a ", tags$b("spot_id"), " column.")
                               ),
                               div(style = "max-height:240px; overflow-y:auto;", tableOutput("ms_table")),
@@ -2479,8 +2508,10 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
     })
 
 ### allow user to upload the whole raw data with a zip file
-    observeEvent(input$load_raw_visium, {
-      req(input$upload_visium_zip)
+    # Shared by the upload button and by the bundled Case Study 2, so the case
+    # study exercises exactly the raw Space Ranger path documented in the
+    # interface rather than a separately preprocessed object.
+    load_visium_zip <- function(zip_path, sample_name) {
 
       tmp_dir <- tempfile()
       dir.create(tmp_dir)
@@ -2493,7 +2524,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
 
       tryCatch({
         # ── 1. Unzip ──────────────────────────────────────────────────────────
-        unzip(input$upload_visium_zip$datapath, exdir = tmp_dir)
+        unzip(zip_path, exdir = tmp_dir)
 
         # ── 2. Find and normalize spatial/ directory ──────────────────────────
         spatial_dirs <- list.dirs(tmp_dir, recursive = TRUE, full.names = TRUE)
@@ -2575,6 +2606,10 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         n_after <- ncol(new_obj)
         showNotification(paste0("QC: kept ", n_after, "/", n_before, " spots"),
                         type = "message", duration = 5)
+
+        # Without this the label of whatever was loaded before carried over into
+        # every export and into ROI-to-dataset matching.
+        if (!is.null(sample_name) && nzchar(sample_name)) current_sample_name(sample_name)
 
         seurat_obj   <<- new_obj
         all_genes    <<- rownames(seurat_obj)
@@ -2705,6 +2740,27 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         showNotification(paste("Load error:", e$message), type = "error", duration = 15)
         unlink(tmp_dir, recursive = TRUE)
       })
+    }
+
+    observeEvent(input$load_raw_visium, {
+      req(input$upload_visium_zip)
+      load_visium_zip(input$upload_visium_zip$datapath,
+                      tools::file_path_sans_ext(input$upload_visium_zip$name))
+    })
+
+    # Case Study 2 ships as the Space Ranger folder it was built from, zipped in
+    # the layout the panel describes, so the bundled button and a reader's own
+    # upload take the identical code path.
+    observeEvent(input$use_case_study2, {
+      z <- .sr_extdata("case_study2_OSCC_spaceranger.zip")
+      if (z == "" || !file.exists(z))
+        z <- file.path("inst", "extdata", "case_study2_OSCC_spaceranger.zip")
+      if (!file.exists(z)) {
+        showNotification("The bundled Case Study 2 Space Ranger archive was not found on this server.",
+                         type = "error", duration = 10)
+        return()
+      }
+      load_visium_zip(z, "CaseStudy2_OSCC")
     })
 
 
@@ -2797,11 +2853,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
 
     .load_cs1 <- load_case_study("case_study1_CRLM.rds",
                                  "Case Study 1 (CRLM)", "CaseStudy1_CRLM")
-    .load_cs2 <- load_case_study("case_study2_OSCC.rds",
-                                 "Case Study 2 (OSCC)", "CaseStudy2_OSCC")
-
     observeEvent(input$use_case_study1, { .load_cs1() })
-    observeEvent(input$use_case_study2, { .load_cs2() })
 
     # Selection summary
     output$selection_summary <- renderText({
@@ -5447,71 +5499,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
       }, error = function(e) list())
     }
 
-    # ── Load ROI: bundled TLS regions, or the user's own spot-ID list ────────
-    # Labels and paths are read from the files themselves (each carries `sample`,
-    # `roi` and its rows), so adding or renaming a bundled ROI needs no code
-    # change here.
-    bundled_roi_choices <- reactive({
-      d <- .example_roi_dir()
-      if (!dir.exists(d)) return(character(0))
-      pretty <- c(Example_Visium  = "CRC (Example Data 1)",
-                  P2N_Spatial     = "P2N liver (upload dataset first)",
-                  CaseStudy1_CRLM = "CRLM (Case Study 1)",
-                  CaseStudy2_OSCC = "OSCC (Case Study 2)")
-      out <- character(0)
-      for (f in file.path(d, .example_roi_files)) {
-        if (!file.exists(f)) next
-        info <- tryCatch({
-          x <- utils::read.csv(f, stringsAsFactors = FALSE)
-          smp <- if ("sample" %in% colnames(x)) trimws(as.character(x$sample[1])) else ""
-          lab <- if (nzchar(smp) && smp %in% names(pretty)) pretty[[smp]] else smp
-          paste0(lab, " — ", nrow(x), " spots")
-        }, error = function(e) NULL)
-        if (!is.null(info)) out[[info]] <- f
-      }
-      out
-    })
-
-    output$roi_load_ui <- renderUI({
-      ch <- bundled_roi_choices()
-      tagList(
-        div(style = "font-size:12px;",
-            # Deliberately starts empty. Defaulting to the ROI that matches the
-            # loaded section made the region appear on its own the moment a
-            # dataset opened, which is a selection the reader never made.
-            selectInput("roi_source", "⬆ Load ROI (.csv)",
-                        choices  = c("— select an ROI —" = "", ch,
-                                     "User defined — upload my own .csv" = "__upload__"),
-                        selected = "", width = "100%")),
-        conditionalPanel(
-          condition = "input.roi_source == '__upload__'",
-          div(style = "margin-top:-10px; margin-bottom:-12px;",
-              fileInput("upload_roi_csv", NULL, accept = c(".csv", ".txt", ".tsv"),
-                        buttonLabel = "Choose file",
-                        placeholder = "spot_id list", width = "100%")))
-      )
-    })
-
-    # Picking an entry loads that ROI. This fires only on a real user choice: the
-    # dropdown is rendered with no selection, so nothing loads until asked.
-    observeEvent(input$roi_source, {
-      f <- input$roi_source
-      if (is.null(f) || !nzchar(f) || identical(f, "__upload__")) return()
-      if (!file.exists(f)) {
-        showNotification("That bundled ROI file is not available on this server.",
-                         type = "error", duration = 8)
-        return()
-      }
-      tryCatch({
-        got <- read_roi_ids(f)
-        nm  <- if (!is.na(got$name)) got$name else tools::file_path_sans_ext(basename(f))
-        add_roi_from_ids(got$ids, nm, paste0("the bundled ROI (", basename(f), ")"))
-      }, error = function(e)
-        showNotification(paste("Could not load that ROI:", e$message),
-                         type = "error", duration = 10))
-    }, ignoreInit = TRUE)
-
-    add_roi_from_ids <- function(ids, fallback_name, source_label) {
+    add_roi_from_ids <- function(ids, fallback_name, source_label, alt_name = "") {
       ids <- unique(trimws(as.character(ids)))
       ids <- ids[nzchar(ids)]
       if (length(ids) == 0) stop("No spot IDs found in that file.")
@@ -5519,8 +5507,13 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
       if (length(hit) == 0)
         stop("None of the ", length(ids), " spot IDs are present in the loaded section. ",
              "Load the dataset this ROI was drawn on first.")
+      # Two index files often carry the same roi label ("TLS"), so fall back to
+      # the file name before resorting to a numeric suffix - "TLS" and "TLS (2)"
+      # on one slide tells the reader nothing about which is which.
       nm <- fallback_name
-      if (!is.null(rois()[[nm]])) {
+      if (!is.null(rois()[[nm]]) && nzchar(alt_name) && is.null(rois()[[alt_name]])) {
+        nm <- alt_name
+      } else if (!is.null(rois()[[nm]])) {
         i <- 2L
         while (!is.null(rois()[[paste0(nm, " (", i, ")")]])) i <- i + 1L
         nm <- paste0(nm, " (", i, ")")
@@ -5567,9 +5560,21 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
       f <- input$upload_roi_csv
       if (is.null(f)) return()
       tryCatch({
-        got <- read_roi_ids(f$datapath)
-        nm  <- if (!is.na(got$name)) got$name else tools::file_path_sans_ext(f$name)
-        add_roi_from_ids(got$ids, nm, f$name)
+        got  <- read_roi_ids(f$datapath)
+        # Files exported by this app are named "<sample>_<roi>_spot_index_<date>",
+        # so re-importing one produced an ROI called
+        # "Example_Visium_A_1_spot_index_20260910". Strip the parts the app added
+        # and keep the region's own name.
+        stem <- tools::file_path_sans_ext(f$name)
+        stem <- sub("_spot_index(_[0-9]{6,8})?$", "", stem)
+        smp  <- current_sample_name()
+        if (!is.null(smp) && nzchar(smp)) {
+          pref <- paste0("^", gsub("[^A-Za-z0-9_-]+", "_", smp), "_")
+          stem <- sub(pref, "", stem)
+        }
+        if (!nzchar(stem)) stem <- tools::file_path_sans_ext(f$name)
+        nm   <- if (!is.na(got$name)) got$name else stem
+        add_roi_from_ids(got$ids, nm, f$name, alt_name = stem)
       }, error = function(e)
         showNotification(paste("Could not load ROI:", e$message), type = "error", duration = 10))
     })
@@ -6876,7 +6881,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
       filename = function() {
         paste0(current_sample_name(), "_",
                gsub("[^A-Za-z0-9_-]+", "_", export_region_name()), "_subset_",
-               format(Sys.time(), "%Y%m%d_%H%M%S"), ".rds")
+               format(Sys.time(), "%Y%m%d"), ".rds")
       },
       content = function(file) {
         sp <- export_region_spots()
@@ -6887,6 +6892,28 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         saveRDS(subset(seurat_obj, cells = sp), file)
       },
       contentType = "application/octet-stream"
+    )
+
+    # The mirror of "Load ROI index": whatever "Show on map" points at, written
+    # in the same three-column format the importer reads back.
+    output$dl_region_index <- downloadHandler(
+      filename = function() {
+        cl <- function(x) gsub("[^A-Za-z0-9_-]+", "_", x)
+        paste0(cl(current_sample_name()), "_", cl(export_region_name()),
+               "_spot_index_", format(Sys.time(), "%Y%m%d"), ".csv")
+      },
+      content = function(file) {
+        sp <- export_region_spots()
+        if (length(sp) == 0) {
+          showNotification("Nothing to export — save an ROI first.", type = "warning", duration = 5)
+          return()
+        }
+        utils::write.csv(
+          data.frame(sample = current_sample_name(), roi = export_region_name(),
+                     spot_id = sp, stringsAsFactors = FALSE),
+          file, row.names = FALSE)
+      },
+      contentType = "text/csv"
     )
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -7109,32 +7136,6 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
       ms_load_tables(data.frame(name = basename(fs), datapath = fs,
                                 stringsAsFactors = FALSE))
     })
-
-    # The three ROIs behind the three example tables, offered next to the tables
-    # they reproduce rather than on the map dock, which is width-constrained.
-    # Zipped so one click yields all three; if the host has no zip binary the
-    # handler falls back to the single CRC file rather than erroring.
-    .example_roi_files <- c("CRC_TLS_41spots.csv", "P2N_TLS_157spots.csv",
-                            "CRLM_TLS_86spots.csv")
-    .example_roi_dir <- function() {
-      d <- .sr_extdata("example_rois")
-      if (d == "" || !dir.exists(d)) d <- file.path("inst", "extdata", "example_rois")
-      d
-    }
-    output$dl_example_roi <- downloadHandler(
-      filename = function() "SpatialROI_example_ROIs.zip",
-      content = function(file) {
-        d  <- .example_roi_dir()
-        fs <- file.path(d, .example_roi_files)
-        fs <- fs[file.exists(fs)]
-        if (length(fs) == 0) stop("The bundled example ROI files were not found.")
-        ok <- tryCatch({
-          utils::zip(zipfile = file, files = fs, flags = "-j9X")
-          file.exists(file) && file.info(file)$size > 0
-        }, error = function(e) FALSE, warning = function(w) FALSE)
-        if (!ok) file.copy(fs[1], file, overwrite = TRUE)
-      }
-    )
 
     observeEvent(input$ms_clear, {
       ms_sigs(list()); ms_gene_rv(NULL); ms_path_rv(NULL)
