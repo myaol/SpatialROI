@@ -1781,7 +1781,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                   tags$span(style = "font-size:13px; color:#7f8c8d;", textOutput("ms_status", inline = TRUE))),
                               tags$div(style = "font-size:12px; color:#5a6b7b; line-height:1.7; margin:0 0 8px 0;",
                                 tags$div("“Load example tables” loads three bundled TLS-signature ROI-versus-rest tables from independent sections:"),
-                                tags$div(tags$b("01_CRC_TLS_ROI_vs_rest.csv"), " — TLS ROI on Example Data 1 (CRC)"),
+                                tags$div(tags$b("01_CRC_TLS_ROI_vs_rest.csv"), " — TLS ROI on Default Data (CRC)"),
                                 tags$div(tags$b("02_P2N_liver_TLS_ROI_vs_rest.csv"), " — TLS ROI on a tumour-adjacent normal liver section; dataset available on GitHub"),
                                 tags$div(tags$b("03_CRLM_liver_TLS_ROI_vs_rest.csv"), " — TLS ROI on Case Study 1 (CRLM)"),
                                 tags$div(style = "margin-top:6px;",
@@ -1790,7 +1790,9 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                   " on the map, run that ROI versus Rest, and download the DEG table. ",
                                   "Repeat for the other sections, then upload the tables here. ",
                                   "The spot-index files and the P2N liver section are in the GitHub repository. ",
-                                  "Your own spot-ID list works too: any .csv with a ", tags$b("spot_id"), " column.")
+                                  "Your own region works too: a .csv with a ", tags$b("spot_id"),
+                                  " column is enough, and the ROI takes the file's name. Optional ",
+                                  tags$b("sample"), " and ", tags$b("roi"), " columns override that name.")
                               ),
                               div(style = "max-height:240px; overflow-y:auto;", tableOutput("ms_table")),
                               tags$p(style = "font-size:11px; color:#7f8c8d; margin-top:8px;",
@@ -2032,6 +2034,12 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
       else key
     }
     cluster_colors_palette <- reactiveVal(NULL) 
+    # Which layer last painted the spots. The cluster overlay and the feature
+    # overlay are drawn by different observers, and "Show clusters" staying
+    # ticked is not evidence that clusters are still on screen - selecting a gene
+    # repaints over them. Save view used to read the checkbox and so kept
+    # exporting clusters after the map had moved on.
+    map_layer <- reactiveVal("none")
 
     lr_db_path <- reactive({
       species <- if (is.null(input$lr_species) || input$lr_species == "") "human" else input$lr_species
@@ -2796,7 +2804,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         if (!inherits(new_seurat, "Seurat")) stop("Example dataset is not a valid Seurat object.")
         if (length(new_seurat@images) == 0)  stop("Example dataset has no spatial images.")
 
-        current_sample_name("Example_Visium")
+        current_sample_name("Default_Data_CRC")
         apply_loaded_seurat(new_seurat)   # swaps in session data, refreshes UI, redraws map
       }, error = function(e) {
         removeNotification(id = "load_seurat")
@@ -4292,6 +4300,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
           }
         }
         message("Legend colors: ", paste(cluster_colors, collapse=", "))
+        map_layer("clusters")
         leafletProxy("map") %>%
           clearGroup("spots") %>%
           clearControls() %>% 
@@ -4834,7 +4843,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
       # "Show clusters on map" paints the spots straight through leafletProxy and
       # never touches current_values(), so without this the export would keep
       # saving whatever feature was displayed before the clusters.
-      cluster_layer <- isTRUE(input$show_clusters) && !is.null(cluster_results())
+      cluster_layer <- identical(map_layer(), "clusters") && !is.null(cluster_results())
       if (cluster_layer) {
         cl <- cluster_results()$clusters
         values <- as.character(cl)[match(spots_sf$spot_id, names(cl))]
@@ -4985,6 +4994,10 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
     update_map_colors <- function() {
       values <- current_values()
       spot_radius <- input$spot_size
+
+      # This function repaints every spot, so once it runs the cluster overlay is
+      # no longer what is on screen - even if the checkbox is still ticked.
+      map_layer(if (is.null(values)) "none" else "feature")
 
       # NOTE (Reviewer 1, item 2): the group overlay is intentionally NOT
       # force-cleared here and the "Show Groups on Map" checkbox is NOT reset.
