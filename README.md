@@ -120,6 +120,49 @@ This function supports multiple ROI selections and returns a vector of spot IDs,
 
 ---
 
+## Example Data and ROI Spot Indices
+
+Three datasets ship inside the package and load from the interface without any
+upload:
+
+| button | dataset | source |
+|---|---|---|
+| Default Data (CRC) | colorectal cancer Visium, 1,253 spots | Valdeolivas *et al.* 2024 |
+| Case Study 1 (CRLM) | colorectal cancer liver metastasis, 3,721 spots | Wu *et al.* 2022, OEP00001756 |
+| Case Study 2 (OSCC) | oral squamous cell carcinoma, raw Space Ranger output | Arora *et al.* 2023, GSE208253 |
+
+### Reproducing the Multi-Sample example tables
+
+The Multi-Sample panel ships three ROI-versus-rest differential-expression
+tables. The exact spot barcodes behind each one are published here:
+
+**[`datasets/roi_indices/`](datasets/roi_indices/)**
+
+| ROI index | spots | dataset to load | regenerates |
+|---|---|---|---|
+| `CRC_TLS_41spots.csv` | 41 | Default Data (CRC) — bundled | `01_CRC_TLS_ROI_vs_rest.csv` |
+| `CRLM_TLS_86spots.csv` | 86 | Case Study 1 (CRLM) — bundled | `03_CRLM_liver_TLS_ROI_vs_rest.csv` |
+| `P2N_TLS_157spots.csv` | 157 | [`datasets/P2N_Spatial.rds`](datasets/) | `02_P2N_liver_TLS_ROI_vs_rest.csv` |
+
+To reproduce a table: load the dataset, import its index with **Load ROI index
+(.csv)** on the map, then run that ROI versus Rest. `CRC_TLS_41spots.csv` is also
+the 41-spot region used in the cross-tool output-concordance analysis.
+
+Any `.csv` with a `spot_id` column imports, so regions defined in other software
+can be loaded the same way; the region takes the file's name unless the file
+carries a `roi` column.
+
+### Upload limits
+
+Uploads are capped at 500 MB. A Seurat object needs roughly three times its file
+size in memory once loaded, so on the shared public server — where sessions
+compete for memory — large sections are better analysed with a local
+installation. Locally the cap can be raised before launching:
+
+```r
+options(shiny.maxRequestSize = 2 * 1024^3)   # 2 GB
+```
+
 ## Reference Datasets
 
 Curated RCTD reference datasets for LUAD/LUSC, RCC, breast cancer, HCC, OSCC, and mouse brain are hosted on Zenodo (the colorectal cancer reference ships with the package itself):
