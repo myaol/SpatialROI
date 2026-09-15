@@ -996,7 +996,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                     tags$p(style = "margin: 0 0 8px 0; font-size: 17px; line-height: 1.7; opacity: 0.97;",
                                       "Draw freehand regions of interest (ROIs) on a tissue image, compare regions, and analyze spatial gene expression — no coding required."),
                                     tags$p(style = "margin: 0; font-size: 15px; opacity: 0.85;",
-                                      "✅ Accepts: Seurat object (.rds); 10x Genomics Visium SpaceRanger raw output")
+                                      "✅ Accepts: Visium Seurat object (.rds); Visium Space Ranger output (.zip)")
                                   ),
 
                                   # Quick Start - vertical rows
@@ -1081,8 +1081,8 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                 div(class = "control-section",
                                     h4("Data Source"),
                                     radioButtons("data_input_type", NULL,
-                                                choices = c("Seurat Object (.rds)" = "rds",
-                                                            "10x Visium Raw Output" = "raw"),
+                                                choices = c("Visium Seurat object (.rds)" = "rds",
+                                                            "Visium Space Ranger output (.zip)" = "raw"),
                                                 selected = "rds"),
 
                                     # ── Seurat object (.rds) ─────────────────────────────────────────
@@ -7472,7 +7472,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         scale_fill_gradient(low = "#F2F5F9", high = "#8B0000") +
         labs(x = NULL, y = NULL, fill = "-log10 FDR",
              title = "Hallmark enrichment per region",
-             subtitle = paste0("✳ = FDR < 0.05  ·  ordered by how many of the ",
+             subtitle = paste0("\u2733 = FDR < 0.05  \u00b7  ordered by how many of the ",
                                nreg, " regions are enriched  ·  ",
                                ms_species_label(), " Hallmark library")) +
         theme_minimal(base_size = 10) +
