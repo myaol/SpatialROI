@@ -12,6 +12,42 @@
   if (length(fa) > 0 && nzchar(fa[1])) return(dirname(normalizePath(fa[1], mustWork = FALSE)))
   normalizePath(getwd(), mustWork = FALSE)
 }
+# The deployed limit is whatever shiny.maxRequestSize is set to, and the public
+# server sits behind a proxy that caps it lower than a local install. Quoting a
+# hard-coded number in the interface guarantees it is wrong somewhere, so read it.
+# The hosted server sits behind a proxy that caps uploads below the package
+# default, and "run SpatialROI locally" is useless advice to someone who already
+# is. Build the whole sentence from the limit in force rather than the number
+# alone, so each deployment says something both true and actionable.
+.sr_limitation_note <- function() {
+  lim <- suppressWarnings(as.numeric(getOption("shiny.maxRequestSize", NA)))
+  lbl <- .sr_upload_limit_label()
+  if (is.finite(lim) && lim < 500 * 1024^2)
+    paste0("uploads are limited to ", lbl, " on this server. Larger sections can be ",
+           "analysed with a local installation, where the limit is 500 MB by default.")
+  else
+    paste0("uploads are limited to ", lbl, ". You can raise this before launching with ",
+           "options(shiny.maxRequestSize = ...).")
+}
+
+.sr_upload_note <- function() {
+  lim <- suppressWarnings(as.numeric(getOption("shiny.maxRequestSize", NA)))
+  lbl <- .sr_upload_limit_label()
+  if (is.finite(lim) && lim < 500 * 1024^2)
+    paste0("\u26a0\ufe0f Loading new data replaces the current analysis. Uploads are limited to ",
+           lbl, " on this server. For larger sections, run SpatialROI locally.")
+  else
+    paste0("\u26a0\ufe0f Loading new data replaces the current analysis. Uploads are limited to ",
+           lbl, ".")
+}
+
+.sr_upload_limit_label <- function() {
+  b <- suppressWarnings(as.numeric(getOption("shiny.maxRequestSize", NA)))
+  if (!is.finite(b) || b <= 0) return("the server limit")
+  mb <- b / 1024^2
+  paste0(format(round(mb), big.mark = ","), " MB")
+}
+
 .sr_extdata <- function(...) {
   # An explicitly set option wins over an installed copy of the package. It used
   # to be the other way round, which meant a stale installed SpatialROI silently
@@ -89,7 +125,11 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
   # Set the application-level upload limit before the UI/server are created.
   # Hosted reverse proxies can impose a lower request limit independently.
-  options(shiny.maxRequestSize = 500 * 1024^2)
+  # Only a default: a deployment that already set this keeps its own value. The
+  # public server sits behind a proxy capped at 150 MB, and silently overriding
+  # that here made the interface advertise a limit the proxy would reject.
+  if (is.null(getOption("shiny.maxRequestSize")))
+    options(shiny.maxRequestSize = 500 * 1024^2)
 
   # The UI labels use emoji; under a C locale they render as literal <U+1F52C>.
   # Force a UTF-8 ctype so the app looks the same on a bare server as it does locally.
@@ -110,7 +150,7 @@ run_spatial_selector <- function(seurat_input, sample_name = "sample", show_imag
 
     message("Loading example Visium dataset from inst/extdata...")
     seurat_input <- list(seurat = readRDS(demo_file))
-    sample_name <- "Example_Visium"
+    sample_name <- "Default_Data_CRC"
   }
 
   # Prepare data (this replaces your first ~60 lines)
@@ -1054,6 +1094,28 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                     )
                                   ),
 
+                                  # Limitations
+                                  tags$div(style = "background: white; border-radius: 12px; padding: 24px 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 20px;",
+                                    tags$h2(style = "color: #0072B5; font-size: 22px; margin: 0 0 15px 0; padding-bottom: 8px; border-bottom: 2px solid #E18727;", "\u26a0\ufe0f Limitations"),
+                                    tags$ul(style = "font-size: 14px; line-height: 1.9; color: #333; padding-left: 20px; margin: 0;",
+                                      tags$li(tags$strong("Upload size:"), " ", .sr_limitation_note()),
+                                      tags$li(tags$strong("Shared resources:"), " the public instance runs on a shared server, so performance depends on how many people are using it. Computationally intensive steps, especially cell type deconvolution, can take several minutes on a large region."),
+                                      tags$li(tags$strong("Session lifetime:"), " uploaded data is held only for the duration of your browser session and is released when the session ends. Download anything you want to keep before closing the tab.")
+                                    )
+                                  ),
+
+                                  # Acknowledgements
+                                  tags$div(style = "background: white; border-radius: 12px; padding: 24px 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 20px;",
+                                    tags$h2(style = "color: #0072B5; font-size: 22px; margin: 0 0 15px 0; padding-bottom: 8px; border-bottom: 2px solid #E18727;", "\U0001F3DB Acknowledgements"),
+                                    tags$p(style = "font-size: 14px; line-height: 1.8; color: #333; margin: 0 0 12px 0;",
+                                      "This research was supported in part by the University of Pittsburgh Center for Research Computing and Data, RRID:SCR_022735, through the resources provided. Specifically, this work used the HTC cluster, which is supported by NIH award number S10OD028483."),
+                                    tags$p(style = "font-size: 14px; line-height: 1.8; color: #333; margin: 0 0 12px 0;",
+                                      tags$strong("Funding. "),
+                                      "This work was supported by NIH grants including NHGRI R01HG014023, NLM 4R00LM013089, 5R01LM012011, and by U.S. NIH grants R35GM158094 and R01GM134020, as well as NSF grants DBI-2238093, DBI-2422619, IIS-2211597, and MCB-2205148."),
+                                    tags$p(style = "font-size: 14px; line-height: 1.8; color: #333; margin: 0 0 12px 0; margin-bottom: 0;",
+                                      "SpatialROI is described in a manuscript currently in preparation; citation details will be added here on publication.")
+                                  ),
+
                                   # Ready to Begin
                                   tags$div(
                                     style = "background: linear-gradient(135deg, #0072B5 0%, #E18727 100%); color: white; padding: 25px; border-radius: 8px; text-align: center; margin-bottom: 20px;",
@@ -1078,6 +1140,12 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                       # Visualization content
                       tags$div(class = "control-content", id = "content_viz",
                                div(class = "panel-header", "🎨 Upload & Visualize"),
+                               div(class = "control-section", style = "background-color: #e8f4f8; border-left: 4px solid #0072B5; padding: 10px; margin: -12px 0 20px 0;",
+                                   tags$p(style = "margin: 0; font-size: 12px; line-height: 1.5;",
+                                          "\U0001F4A1 Load a Visium Seurat object (.rds) or Space Ranger output (.zip), then draw regions directly on the H&E image, import a saved ROI spot index, or combine regions into named groups. Gene expression and metadata can be displayed on the same map."),
+                                   tags$p(style = "margin: 8px 0 0 0; font-size: 12px; line-height: 1.5;",
+                                          "Ligand\u2013receptor colocalisation and RCTD cell-type deconvolution can be run on all spots or within a selected region.")
+                               ),
                                 div(class = "control-section",
                                     h4("Data Source"),
                                     radioButtons("data_input_type", NULL,
@@ -1116,8 +1184,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                                   class = "btn btn-success btn-block",
                                                   style = "margin-top: 8px;"),
                                       tags$p(style = "font-size: 11px; color: #7f8c8d; margin-top: 8px;",
-                                            "⚠️ Loading new data replaces the current analysis. Uploads are limited to 500 MB, ",
-                                            "and the hosted server may allow less. For larger sections, run SpatialROI locally.")
+                                            .sr_upload_note())
                                     ),
 
                                     # ── 10x Visium raw Space Ranger output ───────────────────────────
@@ -1160,8 +1227,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                                   class = "btn btn-success btn-block",
                                                   style = "margin-top: 8px;"),
                                       tags$p(style = "font-size: 11px; color: #7f8c8d; margin-top: 8px;",
-                                            "⚠️ Loading new data replaces the current analysis. Uploads are limited to 500 MB, ",
-                                            "and the hosted server may allow less. For larger sections, run SpatialROI locally.")
+                                            .sr_upload_note())
                                     ),
 
                                     verbatimTextOutput("upload_status")
@@ -1208,7 +1274,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                               div(class = "control-section",
                                   h4("🔗 L-R Colocalization Score"),
                                   tags$p(style = "font-size: 12px; color: #7f8c8d; margin-bottom: 10px;",
-                                        "Compute spatially smoothed ligand-receptor geometric-mean scores in a selected region."),
+                                        "Rank ligand\u2013receptor pairs within a selected region by the geometric mean of their spatially smoothed expression. Highly ranked pairs show strong joint local expression and represent candidates for local signalling."),
 
                                   selectInput("lr_species", "Species:",
                                               choices = c("Human" = "human", "Mouse" = "mouse"),
@@ -1273,7 +1339,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                 div(class = "control-section",
                                     h4("🔬 Cell Type Deconvolution"),
                                     tags$p(style = "font-size: 12px; color: #7f8c8d; margin-bottom: 10px;",
-                                          "Cell-type mixtures per spot (RCTD)."),
+                                          "Estimate the cell-type composition of each spot with RCTD, using a single-cell reference. Runs on all spots or within a selected region."),
 
                                     # ── Reference source selector ──────────────────────────────────────────
                                     h5("Reference Data"),
@@ -1445,35 +1511,13 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                       # Gene Set content - MODIFIED: Added species selection
                       tags$div(class = "control-content", id = "content_geneset",
                                div(class = "panel-header", "🧬 Gene Set Analysis"),
-
-                               # CellMarker 2.0 Citation Panel
-                               div(class = "control-section",
-                                   style = "background-color: #e8f4f8; border-left: 4px solid #0072B5; padding: 10px; margin-bottom: 15px;",
-                                   tags$div(
-                                     tags$p(style = "margin: 0; font-size: 13px; font-weight: bold; color: #0072B5;",
-                                            "📚 Cell Marker Database"),
-                                     tags$p(style = "margin: 5px 0; font-size: 12px; line-height: 1.5;",
-                                            "Pre-defined signatures are curated from CellMarker 2.0, a manually curated database of ",
-                                            tags$b("26,915 cell markers"), " across ", tags$b("2,578 cell types"), " and ", tags$b("656 tissues.")),
-                                     tags$p(style = "margin: 5px 0 0 0; font-size: 11px; line-height: 1.4;",
-                                            tags$b("Citation:"), " Hu C, Li T, Xu Y, et al.",
-                                            tags$i("Nucleic Acids Res."), " 2023;51(D1):D870-D876."),
-                                     tags$div(style = "margin-top: 8px;",
-                                              tags$a(href = "https://academic.oup.com/nar/article/51/D1/D870/6775381",
-                                                     target = "_blank",
-                                                     style = "font-size: 11px; color: #0072B5; text-decoration: none; margin-right: 10px;",
-                                                     "📄 Read Paper"),
-                                              tags$a(href = "http://bio-bigdata.hrbmu.edu.cn/CellMarker/",
-                                                     target = "_blank",
-                                                     style = "font-size: 11px; color: #0072B5; text-decoration: none; margin-right: 10px;",
-                                                     "🌐 Visit Database"),
-                                              tags$a(href = "http://bio-bigdata.hrbmu.edu.cn/CellMarker/CellMarker_download.html",
-                                                     target = "_blank",
-                                                     style = "font-size: 11px; color: #0072B5; text-decoration: none;",
-                                                     "⬇️ Download Data")
-                                     )
-                                   )
+                               div(class = "control-section", style = "background-color: #e8f4f8; border-left: 4px solid #0072B5; padding: 10px; margin: -12px 0 20px 0;",
+                                   tags$p(style = "margin: 0; font-size: 12px; line-height: 1.5;",
+                                          "\U0001F4A1 Select a signature or pathway to calculate an enrichment score across the tissue, and display it on the map like any other feature."),
+                                   tags$p(style = "margin: 8px 0 0 0; font-size: 12px; line-height: 1.5;",
+                                          "Choose a species, then select a curated cell-type signature, a Hallmark pathway, or your own gene list. Enrichment scores are computed using mean expression, AddModuleScore, or GSVA.")
                                ),
+
 
                                div(class = "control-section",
                                    h4("Species Selection"),
@@ -1549,6 +1593,10 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                       # Clustering content
                       tags$div(class = "control-content", id = "content_cluster",
                                div(class = "panel-header", "📊 Clustering Analysis"),
+                               div(class = "control-section", style = "background-color: #e8f4f8; border-left: 4px solid #0072B5; padding: 10px; margin: -12px 0 20px 0;",
+                                   tags$p(style = "margin: 0; font-size: 12px; line-height: 1.5;",
+                                          "\U0001F4A1 Run unsupervised Louvain clustering on all spots or within a selected region using the normalised expression layer.")
+                               ),
                                div(class = "control-section",
                                    h4("Spot Selection"),
                                    selectizeInput("cluster_region", "Cluster which spots:",
@@ -1583,6 +1631,12 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                       # DEG content
                       tags$div(class = "control-content", id = "content_deg",
                                div(class = "panel-header", "📈 Differential Expression"),
+                               div(class = "control-section", style = "background-color: #e8f4f8; border-left: 4px solid #0072B5; padding: 10px; margin: -12px 0 20px 0;",
+                                   tags$p(style = "margin: 0; font-size: 12px; line-height: 1.5;",
+                                          "\U0001F4A1 Compare two regions, or one region against the remaining tissue, using Seurat\u2019s FindMarkers."),
+                                   tags$p(style = "margin: 8px 0 0 0; font-size: 12px; line-height: 1.5;",
+                                          "The table and volcano plot show genes passing the selected FDR, prevalence, and fold-change thresholds, while Moran\u2019s I separately assesses their spatial structure.")
+                               ),
                                div(class = "control-section",
                                    h4("Analysis"),
                                    # Compare ROI-vs-ROI or Group-vs-Group (Reviewer 1, item 1).
@@ -1643,6 +1697,12 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                       # Compare content
                       tags$div(class = "control-content", id = "content_compare",
                                div(class = "panel-header", "⚖️ Feature or Group Comparison"),
+                               div(class = "control-section", style = "background-color: #e8f4f8; border-left: 4px solid #0072B5; padding: 10px; margin: -12px 0 20px 0;",
+                                   tags$p(style = "margin: 0; font-size: 12px; line-height: 1.5;",
+                                          "\U0001F4A1 Compare one feature across two regions, or two features within the same region."),
+                                   tags$p(style = "margin: 8px 0 0 0; font-size: 12px; line-height: 1.5;",
+                                          "Any gene, metadata column, or gene-set score can be used on either side, with a Wilcoxon or t-test summarising the difference.")
+                               ),
                                div(class = "control-section",
                                    h4("Group vs Group"),
                                    selectInput("violin_feature_type", "Feature:",
@@ -1785,14 +1845,16 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                 tags$div(tags$b("02_P2N_liver_TLS_ROI_vs_rest.csv"), " — TLS ROI on a tumour-adjacent normal liver section; dataset available on GitHub"),
                                 tags$div(tags$b("03_CRLM_liver_TLS_ROI_vs_rest.csv"), " — TLS ROI on Case Study 1 (CRLM)"),
                                 tags$div(style = "margin-top:6px;",
-                                  tags$b("To redo this workflow yourself:"),
-                                  " load a dataset, import its TLS spot index with ", tags$b("⬆ Load ROI index (.csv)"),
+                                  tags$b("To regenerate the example tables yourself:"),
+                                  " load a dataset, import its TLS spot index with \u2b06 Load ROI index (.csv)",
                                   " on the map, run that ROI versus Rest, and download the DEG table. ",
                                   "Repeat for the other sections, then upload the tables here. ",
-                                  "The spot-index files and the P2N liver section are in the GitHub repository. ",
-                                  "Your own region works too: a .csv with a ", tags$b("spot_id"),
-                                  " column is enough, and the ROI takes the file's name. Optional ",
-                                  tags$b("sample"), " and ", tags$b("roi"), " columns override that name.")
+                                  "The spot-index files for each sample in the example tables, and the P2N liver sample itself, ",
+                                  "can be downloaded from the GitHub repository."),
+                                tags$div(style = "margin-top:6px;",
+                                  tags$b("Your own region works too:"),
+                                  " a .csv with a spot_id column is enough, and the ROI takes the file\u2019s name. ",
+                                  "Then run the DEG analysis and upload the tables here.")
                               ),
                               div(style = "max-height:240px; overflow-y:auto;", tableOutput("ms_table")),
                               tags$p(style = "font-size:11px; color:#7f8c8d; margin-top:8px;",
@@ -1806,7 +1868,11 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                               div(class = "control-section",
                                 h4("2 · Compare ROI similarity"),
                                 tags$p(style = "font-size:13px; color:#7f8c8d;",
-                                  "Shared DEGs, direction agreement and effect-size correlation for each pair, over genes reported in both tables. Pairs sharing fewer than 10 genes are omitted."),
+                                  "Compares each pair of tables over only the genes reported in both. Pairs sharing fewer than 10 genes are omitted."),
+                                tags$p(style = "font-size:12px; color:#7f8c8d; margin-top:-6px;",
+                                  tags$b("Shared_genes"), " is the number of genes reported in both tables. ",
+                                  tags$b("Same_direction_pct"), " is the percentage of those whose fold change points the same way. ",
+                                  tags$b("logFC_correlation"), " is the Spearman correlation of log2 fold changes across the shared genes, from \u22121 to 1 \u2014 values near 1 mean the two regions agree on which genes change most, and negative values mean they disagree."),
                                 uiOutput("ms_overlap_note"),
                                 div(style = "max-height:300px; overflow:auto;", tableOutput("ms_concordance")),
                                 downloadButton("ms_dl_concordance", "Download Pair Table (.csv)", class = "btn btn-warning")
@@ -1814,9 +1880,9 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
 
                               # ── 2. What biology is shared? ──────────────────────────────
                               div(class = "control-section",
-                                h4("3 · Find shared and variable genes"),
+                                h4("3 \u00b7 Compare differential expression patterns across ROIs"),
                                 tags$p(style = "font-size:13px; color:#7f8c8d;",
-                                  "Genes reported in every uploaded table: mean, median and range of log2FC, and how many regions agree on direction. Each table is used as supplied, at the thresholds chosen when it was exported."),
+                                  "The heatmap shows log2 fold change for genes reported in every uploaded table, one column per region, so genes behaving consistently across regions can be distinguished from those that do not."),
                                 div(style = "display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end;",
                                   div(style = "width:200px;",
                                       numericInput("ms_n_heat", "Genes in heatmap:", value = 30, min = 5, max = 80, step = 5))),
@@ -1829,7 +1895,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
 
                               # ── 3. What pathways are shared? ────────────────────────────
                               div(class = "control-section",
-                                h4("4 · Pathway comparison"),
+                                h4("4 \u00b7 Compare pathway enrichment across ROIs"),
                                 tags$p(style = "font-size:13px; color:#7f8c8d;",
                                   "Hallmark over-representation against a fixed library background. Pathways found in the most ROIs appear first; exploratory."),
                                 div(style = "width:210px;",
@@ -1945,7 +2011,11 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
     message(paste(rep("=", 80), collapse = ""), "\n")
 
     # Increase file upload size limit (default is 5MB, set to 500MB)
-    options(shiny.maxRequestSize = 500*1024^2)  # 500MB in bytes
+    # Only a default: a deployment that already set this keeps its own value. The
+    # public server sits behind a proxy capped at 150 MB, and silently overriding
+    # that here made the interface advertise a limit the proxy would reject.
+    if (is.null(getOption("shiny.maxRequestSize")))
+      options(shiny.maxRequestSize = 500*1024^2)  # 500MB in bytes
     # Hide initial loading screen after app is ready
     observe({
       # Wait a moment for everything to load
@@ -2098,7 +2168,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
 
     # Dynamic header title
     output$header_title <- renderText({
-      paste("🔬 SpatialROI -", current_sample_name())
+      "\U0001F52C SpatialROI"
     })
 
     # Species-dependent libraries. Compare with identical() rather than ==: the
@@ -2184,9 +2254,21 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
       session$sendCustomMessage("closePanel", list())
     })
 
-    # Spot count display
+    # The badge above the map. The selected-spot count only means anything while
+    # a region is being drawn, so it gives way to the name of the loaded section
+    # the rest of the time - which is the thing a reader actually needs to know.
+    .sr_display_name <- function(x) {
+      pretty <- c(Default_Data_CRC = "Default Data (CRC)",
+                  CaseStudy1_CRLM  = "Case Study 1 (CRLM)",
+                  CaseStudy2_OSCC  = "Case Study 2 (OSCC)",
+                  P2N_Liver        = "P2N liver")
+      if (!is.null(x) && nzchar(x) && x %in% names(pretty)) unname(pretty[[x]]) else x
+    }
+
     output$spot_count_display <- renderText({
-      paste("Selected:", length(selected_spots()), "spots")
+      n <- length(selected_spots())
+      if (n > 0) paste("Selected:", n, "spots")
+      else paste("Dataset:", .sr_display_name(current_sample_name()))
     })
 
     # Upload status display
@@ -3308,8 +3390,14 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
           # Run RCTD
           # Single-core was leaving RCTD several times slower than it needs to
           # be. Cap at 4 so a shared deployment is not monopolised.
-          n_cores <- tryCatch(max(1L, min(4L, parallel::detectCores() - 1L)),
-                              error = function(e) 1L)
+          # A shared host must be able to cap this: the public server has 4 cores
+          # for every Shiny app on it, so taking 3 of them for one deconvolution
+          # starves everything else. Deployments set SpatialROI.max_cores; a local
+          # install with cores to spare keeps the previous behaviour.
+          n_cores <- suppressWarnings(as.integer(getOption("SpatialROI.max_cores", NA)))
+          if (is.na(n_cores) || n_cores < 1L)
+            n_cores <- tryCatch(max(1L, min(4L, parallel::detectCores() - 1L)),
+                                error = function(e) 1L)
           rctd_obj <- spacexr::create.RCTD(sp_obj, rctd_ref_sub,
                                             max_cores = n_cores,
                                             CELL_MIN_INSTANCE = 25)
@@ -7388,8 +7476,8 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         scale_fill_gradient2(low = "#4472C4", mid = "white", high = "#8B0000",
                              midpoint = 0, na.value = "grey88") +
         labs(x = NULL, y = NULL, fill = "log2FC",
-             title = "Shared and variable genes across ROIs",
-             subtitle = "Only genes reported in every uploaded ROI are shown; filtering may hide concordant genes") +
+             title = "Shared genes: log2 fold change across ROIs",
+             subtitle = "Only genes reported in every uploaded table are shown") +
         theme_minimal(base_size = 11) +
         theme(axis.text.x = element_text(angle = 35, hjust = 1),
               panel.grid = element_blank(),

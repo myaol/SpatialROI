@@ -19,7 +19,11 @@
 run_SpatialROI <- function(data_path = NULL, ...) {
   # Apply before the initial upload screen is created. A reverse proxy may still
   # impose a lower limit on a hosted deployment.
-  options(shiny.maxRequestSize = 500 * 1024^2)
+  # Only a default: a deployment that already set this keeps its own value. The
+  # public server sits behind a proxy capped at 150 MB, and silently overriding
+  # that here made the interface advertise a limit the proxy would reject.
+  if (is.null(getOption("shiny.maxRequestSize")))
+    options(shiny.maxRequestSize = 500 * 1024^2)
   options(SpatialROI.data_path = data_path)
   if (identical(data_path, "demo")) {
     demo_file <- system.file("extdata", "example_visium.rds", package = "SpatialROI")
