@@ -31,14 +31,78 @@
 }
 
 .sr_upload_note <- function() {
+  paste0("\u26a0\ufe0f Loading new data replaces the current analysis. Uploads are limited to ",
+         "150 MB on the public server and 500 MB in a local installation from GitHub.")
+}
+
+# Public deployment or local install. A deployment can say so explicitly with
+# options(SpatialROI.hosted = TRUE); otherwise the proxy-capped upload limit
+# below the 500 MB local default is the tell, as for the upload notes above.
+.sr_is_hosted <- function() {
+  h <- getOption("SpatialROI.hosted", NA)
+  if (!is.na(h)) return(isTRUE(h))
   lim <- suppressWarnings(as.numeric(getOption("shiny.maxRequestSize", NA)))
-  lbl <- .sr_upload_limit_label()
-  if (is.finite(lim) && lim < 500 * 1024^2)
-    paste0("\u26a0\ufe0f Loading new data replaces the current analysis. Uploads are limited to ",
-           lbl, " on this server. For larger sections, run SpatialROI locally.")
+  is.finite(lim) && lim < 500 * 1024^2
+}
+
+.sr_rctd_time_note <- function() {
+  if (.sr_is_hosted())
+    "Large regions can take several minutes on the public server. The rest of the app stays usable while it runs."
   else
-    paste0("\u26a0\ufe0f Loading new data replaces the current analysis. Uploads are limited to ",
-           lbl, ".")
+    "Large regions can take several minutes. The rest of the app stays usable while it runs."
+}
+
+.sr_rctd_spot_warning <- function(n_spots) {
+  paste0(format(n_spots, big.mark = ","), " spots selected — this may take ",
+         if (.sr_is_hosted()) "several minutes on the public server." else "a few minutes.")
+}
+
+# The RCTD fit itself, one run per region. It runs in a separate R process so a
+# long deconvolution does not block the Shiny process every session shares, so
+# it must be self-contained: only spacexr:: calls and its arguments. The calls
+# and parameters are exactly those the app has always used.
+.sr_rctd_worker <- function(jobs, ref_counts, ref_cell_types, n_cores) {
+  rctd_ref_sub <- spacexr::Reference(ref_counts, ref_cell_types)
+  results <- list()
+  for (job in jobs) {
+    # Convert to plain matrix — some spacexr versions don't handle dgCMatrix well
+    sp_counts_mat <- as.matrix(job$counts)
+    nUMI_vec <- colSums(sp_counts_mat)
+    sp_obj <- spacexr::SpatialRNA(job$coords, sp_counts_mat, nUMI = nUMI_vec)
+    rctd_obj <- spacexr::create.RCTD(sp_obj, rctd_ref_sub,
+                                     max_cores = n_cores,
+                                     CELL_MIN_INSTANCE = 25)
+    rctd_obj <- spacexr::run.RCTD(rctd_obj, doublet_mode = "full")
+    weights_mat <- rctd_obj@results$weights
+    if (!is.matrix(weights_mat)) weights_mat <- as.matrix(weights_mat)
+    props <- spacexr::normalize_weights(weights_mat)
+    results[[job$key]] <- as.data.frame(as.matrix(props))
+  }
+  results
+}
+
+# Start the worker in a background R process and return a promise for its
+# result. Without callr, fall back to running in this process (the old,
+# blocking behaviour) so the feature still works.
+.sr_rctd_async <- function(args, session = NULL) {
+  if (!requireNamespace("callr", quietly = TRUE))
+    return(promises::promise_resolve(do.call(.sr_rctd_worker, args)))
+  proc <- callr::r_bg(.sr_rctd_worker, args = args, package = FALSE,
+                      supervise = TRUE, stdout = NULL, stderr = NULL)
+  if (!is.null(session))
+    session$onSessionEnded(function() if (proc$is_alive()) proc$kill())
+  promises::promise(function(resolve, reject) {
+    poll <- function() {
+      if (proc$is_alive()) return(later::later(poll, 1))
+      res <- tryCatch(proc$get_result(), error = function(e) e)
+      if (inherits(res, "error")) {
+        # callr wraps the child's error; surface the original message.
+        msg <- if (!is.null(res$parent)) conditionMessage(res$parent) else conditionMessage(res)
+        reject(simpleError(msg))
+      } else resolve(res)
+    }
+    poll()
+  })
 }
 
 .sr_upload_limit_label <- function() {
@@ -1036,7 +1100,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                     tags$p(style = "margin: 0 0 8px 0; font-size: 17px; line-height: 1.7; opacity: 0.97;",
                                       "Draw freehand regions of interest (ROIs) on a tissue image, compare regions, and analyze spatial gene expression — no coding required."),
                                     tags$p(style = "margin: 0; font-size: 15px; opacity: 0.85;",
-                                      "✅ Accepts: Visium Seurat object (.rds); Visium Space Ranger output (.zip)")
+                                      "✅ Accepts: 10x Visium Seurat object (.rds) or 10x Visium Space Ranger output (.zip)")
                                   ),
 
                                   # Quick Start - vertical rows
@@ -1048,35 +1112,32 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                       tags$div(style = "display: flex; align-items: flex-start; gap: 18px;",
                                         tags$div(style = "background: #0072B5; color: white; min-width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: bold;", "1"),
                                         tags$div(
-                                          tags$div(style = "font-weight: bold; color: #2c3e50; font-size: 16px; margin-bottom: 3px;", "Upload Your Data"),
-                                          tags$div(style = "font-size: 14px; color: #555; line-height: 1.5;", "Navigate to the 🎨 Visualization panel to load a Seurat .rds file, a 10x SpaceRanger output folder, or use the built-in example dataset to get started immediately.")
+                                          tags$div(style = "font-weight: bold; color: #2c3e50; font-size: 16px; margin-bottom: 3px;", "Load Your Data"),
+                                          tags$div(style = "font-size: 14px; color: #555; line-height: 1.5;", "In ", tags$strong("🎨 Upload & Visualize", .noWS = "after"), ", load a 10x Visium Seurat object (.rds) or 10x Visium Space Ranger output (.zip), or start right away with Default Data (CRC) or one of the two case studies.")
                                         )
                                       ),
 
                                       tags$div(style = "display: flex; align-items: flex-start; gap: 18px;",
                                         tags$div(style = "background: #0072B5; color: white; min-width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: bold;", "2"),
                                         tags$div(
-                                          tags$div(style = "font-weight: bold; color: #2c3e50; font-size: 16px; margin-bottom: 3px;", "Select Regions of Interest"),
-                                          tags$div(style = "font-size: 14px; color: #555; line-height: 1.5;", "Use the ✏️ freehand tool to draw a tissue region, then save it as a named ROI. Combine several ROIs into a named group when they should be analyzed together.")
+                                          tags$div(style = "font-weight: bold; color: #2c3e50; font-size: 16px; margin-bottom: 3px;", "Draw and Group Regions"),
+                                          tags$div(style = "font-size: 14px; color: #555; line-height: 1.5;", "Use the ✏️ freehand tool to draw a tissue region and save it as a named ROI, or load a saved ROI index (.csv). Combine several ROIs into a named group when they should be analysed together.")
                                         )
                                       ),
 
                                       tags$div(style = "display: flex; align-items: flex-start; gap: 18px;",
                                         tags$div(style = "background: #0072B5; color: white; min-width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: bold;", "3"),
                                         tags$div(
-                                          tags$div(style = "font-weight: bold; color: #2c3e50; font-size: 16px; margin-bottom: 3px;", "Group ROIs for Comparison"),
-                                          tags$div(style = "font-size: 14px; color: #555; line-height: 1.5;",
-                                            " Saved ROIs and groups remain available throughout the session, and any of them can be picked on either side of a comparison. Use ",
-                                            tags$strong("Save region (.rds)"), " beneath the map to export the selected region as a Seurat object, or the ",
-                                            tags$strong("DEG"), " panel to export the threshold-filtered differential-expression table for descriptive Multi-Sample comparison.")
+                                          tags$div(style = "font-weight: bold; color: #2c3e50; font-size: 16px; margin-bottom: 3px;", "Explore & Analyze"),
+                                          tags$div(style = "font-size: 14px; color: #555; line-height: 1.5;", "Use the sidebar tools to view gene expression, score gene signatures, run clustering, differential expression, ligand\u2013receptor colocalisation and cell-type deconvolution. Any saved ROI or group can be used in each tool, and a comparison can be ROI vs ROI, group vs group, or a region vs the rest of the tissue.")
                                         )
                                       ),
 
                                       tags$div(style = "display: flex; align-items: flex-start; gap: 18px;",
                                         tags$div(style = "background: #0072B5; color: white; min-width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: bold;", "4"),
                                         tags$div(
-                                          tags$div(style = "font-weight: bold; color: #2c3e50; font-size: 16px; margin-bottom: 3px;", "Explore & Analyze"),
-                                          tags$div(style = "font-size: 14px; color: #555; line-height: 1.5;", "Use the sidebar tools to visualize gene expression, score gene signatures, perform clustering, differential expression analysis, ligand–receptor colocalization, cell-type deconvolution, and export results.")
+                                          tags$div(style = "font-weight: bold; color: #2c3e50; font-size: 16px; margin-bottom: 3px;", "Save & Compare"),
+                                          tags$div(style = "font-size: 14px; color: #555; line-height: 1.5;", "Use ", tags$strong("Save ROI index (.csv)"), " to reload your regions in a later session, and ", tags$strong("Save region (.rds)"), " to export the region as a Seurat object. Tables and figures can be downloaded from each panel. ROI-vs-rest DEG tables can be uploaded to ", tags$strong("🧩 Multi-Sample", .noWS = "after"), " to compare ROIs across samples.")
                                         )
                                       )
                                     )
@@ -1086,11 +1147,13 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                   tags$div(style = "background: white; border-radius: 12px; padding: 24px 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 20px;",
                                     tags$h2(style = "color: #0072B5; font-size: 22px; margin: 0 0 15px 0; padding-bottom: 8px; border-bottom: 2px solid #E18727;", "💡 Tips & Best Practices"),
                                     tags$ul(style = "font-size: 14px; line-height: 1.9; color: #333; padding-left: 20px; margin: 0;",
-                                      tags$li(tags$strong("Selection:"), " Draw a region of interest using the freehand tool and save it as a named ROI; group ROIs together to analyze them as one group."),
+                                      tags$li(tags$strong("Selection:"), " Draw a region of interest using the freehand tool and save it as a named ROI. Group ROIs together to analyze them as one group. To see the tissue clearly while drawing, make the spots smaller with Spot Size and raise H&E Opacity."),
                                       tags$li(tags$strong("Map display:"), " Use “Show on map” to choose the displayed ROI/group, “Show ROIs on Map” to add its spots, “Transparent ROI Display” to reveal the tissue below, and “Show ROI contours” for high-contrast outlines."),
                                       tags$li(tags$strong("Species:"), " Select the correct species (Human/Mouse) before using built-in gene signatures or pathway gene sets."),
                                       tags$li(tags$strong("Clustering:"), " Start with the default resolution (0.8) and increase it for finer subgroup identification."),
-                                      tags$li(tags$strong("Export:"), " Export selected ROIs as Seurat subsets for reuse in SpatialROI or downstream analysis in external tools.")
+                                      tags$li(tags$strong("Export:"), " Export selected ROIs as Seurat subsets for reuse in SpatialROI or downstream analysis in external tools."),
+                                      tags$li(tags$strong("Source code:"), " Local installation, example data and source code are available at ",
+                                              tags$a("github.com/myaol/SpatialROI", href = "https://github.com/myaol/SpatialROI", target = "_blank", .noWS = "after"), ".")
                                     )
                                   ),
 
@@ -1098,9 +1161,9 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                   tags$div(style = "background: white; border-radius: 12px; padding: 24px 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 20px;",
                                     tags$h2(style = "color: #0072B5; font-size: 22px; margin: 0 0 15px 0; padding-bottom: 8px; border-bottom: 2px solid #E18727;", "\u26a0\ufe0f Limitations"),
                                     tags$ul(style = "font-size: 14px; line-height: 1.9; color: #333; padding-left: 20px; margin: 0;",
-                                      tags$li(tags$strong("Upload size:"), " ", .sr_limitation_note()),
-                                      tags$li(tags$strong("Shared resources:"), " the public instance runs on a shared server, so performance depends on how many people are using it. Computationally intensive steps, especially cell type deconvolution, can take several minutes on a large region."),
-                                      tags$li(tags$strong("Session lifetime:"), " uploaded data is held only for the duration of your browser session and is released when the session ends. Download anything you want to keep before closing the tab.")
+                                      tags$li(tags$strong("Upload size:"), " Uploads are limited to 150 MB on the public server. A local installation from GitHub allows up to 500 MB by default, and the limit can be raised before launching in codes with options(shiny.maxRequestSize = ...)."),
+                                      tags$li(tags$strong("Shared resources:"), " The public server is shared by all users. When many people use it at the same time, the app can become slow. If this happens, refresh the page or try again later. Computationally intensive steps, especially cell-type deconvolution on a large region, can take several minutes."),
+                                      tags$li(tags$strong("Session lifetime:"), " Uploaded data is kept only while your browser tab is open and is cleared when you close it. To pick up your analysis later, save your regions with ", tags$strong("Save ROI index (.csv)"), " or ", tags$strong("Save region (.rds)"), " first. You can reload the ROI index next time with ", tags$strong("Load ROI index", .noWS = "after"), ".")
                                     )
                                   ),
 
@@ -1113,7 +1176,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                       tags$strong("Funding. "),
                                       "This work was supported by NIH grants including NHGRI R01HG014023, NLM 4R00LM013089, 5R01LM012011, and by U.S. NIH grants R35GM158094 and R01GM134020, as well as NSF grants DBI-2238093, DBI-2422619, IIS-2211597, and MCB-2205148."),
                                     tags$p(style = "font-size: 14px; line-height: 1.8; color: #333; margin: 0 0 12px 0; margin-bottom: 0;",
-                                      "SpatialROI is described in a manuscript currently in preparation; citation details will be added here on publication.")
+                                      "SpatialROI is described in a manuscript currently in preparation. Citation details will be added here on publication.")
                                   ),
 
                                   # Ready to Begin
@@ -1142,15 +1205,15 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                div(class = "panel-header", "🎨 Upload & Visualize"),
                                div(class = "control-section", style = "background-color: #e8f4f8; border-left: 4px solid #0072B5; padding: 10px; margin: -12px 0 20px 0;",
                                    tags$p(style = "margin: 0; font-size: 12px; line-height: 1.5;",
-                                          "\U0001F4A1 Load a Visium Seurat object (.rds) or Space Ranger output (.zip), then draw regions directly on the H&E image, import a saved ROI spot index, or combine regions into named groups. Gene expression and metadata can be displayed on the same map."),
+                                          "\U0001F4A1 Load a 10x Visium Seurat object (.rds) or 10x Visium Space Ranger output (.zip), then draw regions directly on the H&E image, import a saved ROI spot index, or combine regions into named groups. Gene expression and metadata can be displayed on the same map."),
                                    tags$p(style = "margin: 8px 0 0 0; font-size: 12px; line-height: 1.5;",
                                           "Ligand\u2013receptor colocalisation and RCTD cell-type deconvolution can be run on all spots or within a selected region.")
                                ),
                                 div(class = "control-section",
                                     h4("Data Source"),
                                     radioButtons("data_input_type", NULL,
-                                                choices = c("Visium Seurat object (.rds)" = "rds",
-                                                            "Visium Space Ranger output (.zip)" = "raw"),
+                                                choices = c("10x Visium Seurat object (.rds)" = "rds",
+                                                            "10x Visium Space Ranger output (.zip)" = "raw"),
                                                 selected = "rds"),
 
                                     # ── Seurat object (.rds) ─────────────────────────────────────────
@@ -1167,8 +1230,8 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                       ),
                                       tags$div(
                                         style = "font-size:11px; color:#607080; line-height:1.45; margin:8px 0; padding:8px; background:#f4f7f9; border-radius:6px;",
-                                        tags$div(tags$b("Default Data (CRC):"), " human colorectal cancer Visium; 1,253 spots and 17,529 genes."),
-                                        tags$div(tags$b("Case Study 1 (CRLM):"), " colorectal cancer liver metastasis Visium; 3,721 spots and 18,040 genes.")
+                                        tags$div(tags$b("Default Data (CRC):"), " human colorectal cancer 10x Visium; 1,253 spots and 17,529 genes."),
+                                        tags$div(tags$b("Case Study 1 (CRLM):"), " colorectal cancer liver metastasis 10x Visium; 3,721 spots and 18,040 genes.")
                                       ),
                                       # Mirrors the "How to prepare your zip" box opposite, so both
                                       # input types state their requirements in the same place.
@@ -1176,7 +1239,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                         style = "background: #e8f4f8; border-left: 4px solid #0072B5; padding: 10px; margin-bottom: 12px;",
                                         tags$p(style = "font-size: 11px; color: #555; margin: 0;",
                                                tags$b("Requirements:"),
-                                               " a Visium Seurat object with a spatial image, tissue-spot coordinates, and log-normalised expression.")
+                                               " a 10x Visium Seurat object with a spatial image, tissue-spot coordinates, and log-normalised expression.")
                                       ),
                                       fileInput("upload_seurat", "Upload processed Seurat object (.rds)",
                                                 accept = c(".rds")),
@@ -1196,7 +1259,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                       ),
                                       tags$div(
                                         style = "font-size:11px; color:#607080; line-height:1.45; margin:8px 0; padding:8px; background:#f4f7f9; border-radius:6px;",
-                                        tags$div(tags$b("Case Study 2 (OSCC):"), " oral squamous cell carcinoma Visium; 1,903 spots after QC and 36,601 genes.")
+                                        tags$div(tags$b("Case Study 2 (OSCC):"), " oral squamous cell carcinoma 10x Visium; 1,903 spots after QC and 36,601 genes.")
                                       ),
                                       tags$div(
                                         style = "background: #e8f4f8; border-left: 4px solid #0072B5; padding: 10px; margin-bottom: 12px;",
@@ -1220,7 +1283,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                           numericInput("qc_min_counts", "Min. counts per spot:", value = 500, min = 0, step = 100),
                                           numericInput("qc_max_mt", "Max. % mitochondrial:", value = 30, min = 0, max = 100, step = 5),
                                           tags$p(style = "font-size:11px; color:#7f8c8d;",
-                                                 "Applied to raw SpaceRanger output only. Uploaded Seurat objects are used as provided.")
+                                                 "Applied to raw Space Ranger output only. Uploaded Seurat objects are used as provided.")
                                         )
                                       ),
                                       actionButton("load_raw_visium", "Load 10x Visium Data",
@@ -1307,7 +1370,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                       numericInput("lr_bandwidth_mult", "Gaussian bandwidth multiplier:",
                                                    value = 1.0, min = 0.25, max = 4, step = 0.25),
                                       tags$p(style = "font-size:11px; color:#7f8c8d; margin-top:4px;",
-                                             "σ = median distance to the 12 nearest spots × this value; 0.5–2 is a practical range. It changes the per-spot map; the ranked pair table shifts little, because smoothing preserves each pair\u2019s spatial average.")
+                                             "σ = median distance to the 12 nearest spots × this value. 0.5–2 is a practical range. It changes the per-spot map, but the ranked pair table shifts little, because smoothing preserves each pair\u2019s spatial average.")
                                     )
                                   ),
 
@@ -1340,6 +1403,8 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                     h4("🔬 Cell Type Deconvolution"),
                                     tags$p(style = "font-size: 12px; color: #7f8c8d; margin-bottom: 10px;",
                                           "Estimate the cell-type composition of each spot with RCTD, using a single-cell reference. Runs on all spots or within a selected region."),
+                                    tags$p(style = "font-size: 12px; color: #7f8c8d; margin-bottom: 10px;",
+                                          .sr_rctd_time_note()),
 
                                     # ── Reference source selector ──────────────────────────────────────────
                                     h5("Reference Data"),
@@ -1354,15 +1419,21 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                       selectInput("builtin_ref_choice",
                                                   "Select built-in reference:",
                                                   choices = c(
-                                                    "CRC — Colorectal Cancer (SMC cohort)" = "crc"
-                                                    # Add more here as you package new references, e.g.:
-                                                    # "BRCA — Breast Cancer" = "brca",
-                                                    # "LUAD — Lung Adenocarcinoma" = "luad"
+                                                    "CRC — Colorectal cancer (GSE132465)" = "crc",
+                                                    "CRLM — Colorectal cancer liver metastasis (GSE225857)" = "crlm"
                                                   )),
-                                      
+
+                                      conditionalPanel(
+                                        condition = "input.builtin_ref_choice == 'crc'",
+                                        tags$p(style = "font-size: 11px; color: #7f8c8d; margin: 4px 0 0 0;",
+                                              "Built for human colorectal cancer tissue. It matches Default Data (CRC).")),
+                                      conditionalPanel(
+                                        condition = "input.builtin_ref_choice == 'crlm'",
+                                        tags$p(style = "font-size: 11px; color: #7f8c8d; margin: 4px 0 0 0;",
+                                              "Built for human colorectal cancer liver metastasis. It matches Case Study 1 (CRLM).")),
                                       tags$p(style = "font-size: 11px; color: #7f8c8d; margin-top: 4px;",
-                                            "Built for human colorectal tissue. Other tissues or species need a matched reference \u2014 see our ", 
-                                            tags$a("GitHub", href = "https://github.com/myaol/SpatialROI", target = "_blank"), "."),
+                                            "Other tissues or species need a matched reference. Curated references for other cancer types are available on ",
+                                            tags$a("GitHub", href = "https://github.com/myaol/SpatialROI", target = "_blank", .noWS = "after"), "."),
 
                                       actionButton("load_builtin_ref", "Load Built-in Reference",
                                                   class = "btn btn-info btn-block",
@@ -1372,16 +1443,8 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                     # User upload
                                     conditionalPanel(
                                       condition = "input.ref_source == 'upload'",
-                                      div(style = "display: flex; gap: 10px; margin-bottom: 10px;",
-                                          actionButton("show_ref_upload", "📤 Upload scRNA-seq Reference",
-                                                      class = "btn btn-info",
-                                                      style = "flex: 1;")
-                                      ),
-                                      conditionalPanel(
-                                        condition = "input.show_ref_upload % 2 == 1",
-                                        fileInput("upload_reference", "Select scRNA-seq Reference (.rds)",
-                                                  accept = c(".rds")),
-                                      )
+                                      fileInput("upload_reference", "Upload scRNA-seq reference (.rds)",
+                                                accept = c(".rds"))
                                     ),
 
 
@@ -1402,8 +1465,6 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                     actionButton("run_deconv", "🔬 Estimate Cell Composition",
                                                 class = "btn btn-primary btn-block",
                                                 style = "margin-top: 10px;"),
-                                    tags$p(style = "font-size: 11px; color: #e67e22; margin-top: 5px;",
-                                          "Each selected region is fitted separately (~1–4 min)."),
 
                                     # ── Results ────────────────────────────────────────────────────────────
                                     conditionalPanel(
@@ -1528,7 +1589,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                           "Gene symbols and built-in signatures follow the selected species.")
                                ),
                                div(class = "control-section",
-                                   h4("Select Signature"),
+                                   h4("Marker Signatures (CellMarker 2.0)"),
                                    selectInput("signature_library", "Pre-defined Signatures:",
                                                choices = names(signature_library_human),
                                                selected = "Custom"),
@@ -1552,7 +1613,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                                 class = "btn btn-warning btn-block")
                                   ),
                                   tags$p(style = "font-size: 11px; color: #7f8c8d; margin-top: 5px;",
-                                        "Loads genes into Gene Input; the selected scoring method is then applied.")
+                                        "Loads genes into Gene Input. The selected scoring method is then applied.")
                               ),
 
                                div(class = "control-section",
@@ -1635,7 +1696,9 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                    tags$p(style = "margin: 0; font-size: 12px; line-height: 1.5;",
                                           "\U0001F4A1 Compare two regions, or one region against the remaining tissue, using Seurat\u2019s FindMarkers."),
                                    tags$p(style = "margin: 8px 0 0 0; font-size: 12px; line-height: 1.5;",
-                                          "The table and volcano plot show genes passing the selected FDR, prevalence, and fold-change thresholds, while Moran\u2019s I separately assesses their spatial structure.")
+                                          "The table and volcano plot show genes passing the selected FDR, prevalence, and fold-change thresholds, while Moran\u2019s I separately assesses their spatial structure."),
+                                   tags$p(style = "margin: 8px 0 0 0; font-size: 12px; line-height: 1.5;",
+                                          "A DEG table of one region vs the rest of the tissue can be saved with Download DEG table (.csv) and uploaded in the Multi-Sample section to compare ROIs across samples.")
                                ),
                                div(class = "control-section",
                                    h4("Analysis"),
@@ -1646,7 +1709,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                    selectizeInput("deg_side_b", "Side B:", choices = NULL,
                                                   options = list(placeholder = "ROI/group, or Rest of tissue")),
                                    tags$p(style = "font-size:11px; color:#7f8c8d; margin:-8px 0 6px 0;",
-                                          "Non-overlapping regions are recommended; for overlapping regions, shared spots are excluded from both sides."),
+                                          "Non-overlapping regions are recommended. For overlapping regions, shared spots are excluded from both sides."),
                                    # ⚙ Advanced settings (collapsed) — DE test + thresholds (Reviewer 2, item 3).
                                    tags$details(style = "margin:6px 0;",
                                      tags$summary(style = "cursor:pointer; font-weight:600; color:#2c3e50;",
@@ -1675,7 +1738,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                           tableOutput("deg_table")),
                                   plotOutput("deg_volcano", height = "450px"),
                                   tags$p(style = "font-size:11px; color:#7f8c8d; margin-top:4px;",
-                                         "All tested genes are plotted; coloured points pass the FDR and |log2FC| thresholds. The table, Moran's I view, and export include the passing genes only."),
+                                         "All tested genes are plotted. Coloured points pass the FDR and |log2FC| thresholds. The table, Moran's I view, and export include the passing genes only."),
                                   downloadButton("dl_deg_volcano", "Download Volcano Figure (PDF)",
                                                  class = "btn btn-warning btn-block"),
                                   plotOutput("deg_moran_volcano", height = "450px"),
@@ -1701,7 +1764,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                    tags$p(style = "margin: 0; font-size: 12px; line-height: 1.5;",
                                           "\U0001F4A1 Compare one feature across two regions, or two features within the same region."),
                                    tags$p(style = "margin: 8px 0 0 0; font-size: 12px; line-height: 1.5;",
-                                          "Any gene, metadata column, or gene-set score can be used on either side, with a Wilcoxon or t-test summarising the difference.")
+                                          "Any gene, metadata column, or gene-set score can be used on either side. The two sides are shown as violin plots, with a Wilcoxon or t-test summarising the difference.")
                                ),
                                div(class = "control-section",
                                    h4("Group vs Group"),
@@ -1734,7 +1797,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                    selectizeInput("violin_side_b", "Side B:", choices = NULL,
                                                   options = list(placeholder = "ROI/group, or Rest of tissue")),
                                    tags$p(style = "font-size:11px; color:#7f8c8d; margin:-8px 0 6px 0;",
-                                          "Non-overlapping regions are recommended; for overlapping regions, shared spots are excluded from both sides."),
+                                          "Non-overlapping regions are recommended. For overlapping regions, shared spots are excluded from both sides."),
                                    selectInput("violin_stat_test", "Test:",
                                                choices = c("Wilcoxon" = "wilcox", "t-test" = "ttest"),
                                                selected = "wilcox"),
@@ -1832,7 +1895,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                             div(class = "control-section",
                               h4("1 · Upload DEG tables"),
                               tags$p(style = "font-size:13px; color:#7f8c8d;",
-                                "Upload DEG tables from SpatialROI or elsewhere. A gene column and a log-fold-change column are required."),
+                                "Upload DEG tables from SpatialROI or elsewhere. A gene column (gene, symbol) and a log-fold-change column (avg_log2FC, log2FoldChange, logFC) are required."),
                               fileInput("ms_upload", NULL, multiple = TRUE, accept = c(".csv", ".txt"), width = "100%"),
                               div(style = "display:flex; gap:10px; align-items:center; margin-bottom:10px;",
                                   actionButton("ms_load_examples", "Load example tables",
@@ -1842,7 +1905,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                               tags$div(style = "font-size:12px; color:#5a6b7b; line-height:1.7; margin:0 0 8px 0;",
                                 tags$div("“Load example tables” loads three bundled TLS-signature ROI-versus-rest tables from independent sections:"),
                                 tags$div(tags$b("01_CRC_TLS_ROI_vs_rest.csv"), " — TLS ROI on Default Data (CRC)"),
-                                tags$div(tags$b("02_P2N_liver_TLS_ROI_vs_rest.csv"), " — TLS ROI on a tumour-adjacent normal liver section; dataset available on GitHub"),
+                                tags$div(tags$b("02_P2N_liver_TLS_ROI_vs_rest.csv"), " — TLS ROI on a tumour-adjacent normal liver section (dataset available on GitHub)"),
                                 tags$div(tags$b("03_CRLM_liver_TLS_ROI_vs_rest.csv"), " — TLS ROI on Case Study 1 (CRLM)"),
                                 tags$div(style = "margin-top:6px;",
                                   tags$b("To regenerate the example tables yourself:"),
@@ -1868,7 +1931,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                               div(class = "control-section",
                                 h4("2 · Compare ROI similarity"),
                                 tags$p(style = "font-size:13px; color:#7f8c8d;",
-                                  "Compares each pair of tables over only the genes reported in both. Pairs sharing fewer than 10 genes are omitted."),
+                                  "Compares each pair of tables over only the genes reported in both. Pairs sharing fewer than 5 genes are omitted."),
                                 tags$p(style = "font-size:12px; color:#7f8c8d; margin-top:-6px;",
                                   tags$b("Shared_genes"), " is the number of genes reported in both tables. ",
                                   tags$b("Same_direction_pct"), " is the percentage of those whose fold change points the same way. ",
@@ -1882,13 +1945,15 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                               div(class = "control-section",
                                 h4("3 \u00b7 Compare differential expression patterns across ROIs"),
                                 tags$p(style = "font-size:13px; color:#7f8c8d;",
-                                  "The heatmap shows log2 fold change for genes reported in every uploaded table, one column per region, so genes behaving consistently across regions can be distinguished from those that do not."),
+                                  "The heatmap shows log2 fold change for genes reported in every uploaded table, one column per region, so genes behaving consistently across regions can be distinguished from those that do not. Half of the rows are the strongest shared up-regulated genes and half the strongest shared down-regulated genes, each ranked by how many regions agree on direction and then by average fold change. The table below lists all shared genes."),
                                 div(style = "display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end;",
                                   div(style = "width:200px;",
                                       numericInput("ms_n_heat", "Genes in heatmap:", value = 30, min = 5, max = 80, step = 5))),
                                 plotOutput("ms_gene_heatmap", height = "640px"),
                                 downloadButton("ms_dl_gene_fig", "Download Figure (PDF)", class = "btn btn-warning"),
                                 tags$hr(),
+                                tags$p(style = "font-size:12px; color:#7f8c8d;",
+                                  "Mean, median, min and max summarise each gene\u2019s log2 fold change across regions. Same_direction counts the regions in which the gene changes the same way."),
                                 div(style = "max-height:440px; overflow:auto;", tableOutput("ms_consensus")),
                                 downloadButton("ms_dl_consensus", "Download Shared-Pattern Table (.csv)", class = "btn btn-warning")
                               ),
@@ -1897,28 +1962,13 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                               div(class = "control-section",
                                 h4("4 \u00b7 Compare pathway enrichment across ROIs"),
                                 tags$p(style = "font-size:13px; color:#7f8c8d;",
-                                  "Hallmark over-representation against a fixed library background. Pathways found in the most ROIs appear first; exploratory."),
+                                  "Hallmark over-representation, run separately for each uploaded table using all of its genes (up- and down-regulated together), with all Hallmark genes as the background. Pathways found in the most ROIs appear first. Results are exploratory. The species follows the setting in the Gene Sets panel."),
                                 div(style = "width:210px;",
                                     numericInput("ms_n_path", "Pathways to show:", value = 25, min = 5, max = 50, step = 5)),
                                 plotOutput("ms_pathway_heatmap", height = "660px"),
                                 div(style = "display:flex; gap:10px;",
                                     downloadButton("ms_dl_pathway_fig", "Download Figure (PDF)", class = "btn btn-warning"),
                                     downloadButton("ms_dl_pathway_tbl", "Download Enrichment (.csv)", class = "btn btn-warning"))
-                              ),
-
-                              # ── Optional: discordant genes ──────────────────────────────
-                              # Largely another view of the effect-size heatmap, so it is
-                              # collapsed rather than presented as a headline analysis.
-                              div(class = "control-section",
-                                tags$details(
-                                  tags$summary(style = "cursor:pointer; font-weight:600; color:#2c3e50; font-size:15px;",
-                                               "Inspect discordant genes"),
-                                  tags$div(style = "padding-top:10px;",
-                                    tags$p(style = "font-size:13px; color:#7f8c8d;",
-                                      "Strong in one region but opposite in another \u2014 sample-specific biology, or a region that is not comparable."),
-                                    div(style = "max-height:340px; overflow:auto;", tableOutput("ms_disagree")),
-                                    downloadButton("ms_dl_disagree", "Download Table (.csv)", class = "btn btn-warning"))
-                                )
                               )
                             )
                           )
@@ -2554,7 +2604,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
             paste0("This object's spatial image is of type ",
                    paste(unique(img_cls), collapse = ", "),
                    ", not 10x Visium. SpatialROI is designed and validated for ",
-                   "10x Genomics Visium; imaging-based platforms such as Xenium, ",
+                   "10x Genomics Visium. Imaging-based platforms such as Xenium, ",
                    "CosMx and MERSCOPE, and Visium HD bin objects, are not ",
                    "validated here. The data has been loaded, but interpret every ",
                    "result with that in mind."),
@@ -2978,19 +3028,35 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
     # ── Built-in reference paths ───────────────────────────────────────────────────
     # Place your .rds files in a data/ subfolder next to app.R
     
-    builtin_refs <- list(
-      crc = {
-        # Works when installed as a package
-        pkg_path <- .sr_extdata("CRC_reference_RCTD.rds")
-        if (nchar(pkg_path) > 0 && file.exists(pkg_path)) {
-          pkg_path
-        } else {
-          # Fallback for running app.R directly during development
-          # app.R is at inst/app/app.R, so extdata is one level up
-          file.path(dirname(getwd()), "extdata", "CRC_reference_RCTD.rds")
-        }
+    .builtin_ref_path <- function(file) {
+      # Works when installed as a package
+      pkg_path <- .sr_extdata(file)
+      if (nchar(pkg_path) > 0 && file.exists(pkg_path)) {
+        pkg_path
+      } else {
+        # Fallback for running app.R directly during development
+        # app.R is at inst/app/app.R, so extdata is one level up
+        file.path(dirname(getwd()), "extdata", file)
       }
+    }
+    builtin_refs <- list(
+      crc  = .builtin_ref_path("CRC_reference_RCTD.rds"),
+      crlm = .builtin_ref_path("CRLM_reference_RCTD.rds")
     )
+    builtin_ref_labels <- c(crc = "CRC", crlm = "CRLM")
+
+    # Pre-select the reference that matches a bundled dataset when it is loaded.
+    # Only the choice changes; the user still clicks Load.
+    observeEvent(current_sample_name(), {
+      match_ref <- switch(current_sample_name(),
+                          Default_Data_CRC = "crc",
+                          CaseStudy1_CRLM  = "crlm",
+                          NULL)
+      if (!is.null(match_ref)) {
+        updateRadioButtons(session, "ref_source", selected = "builtin")
+        updateSelectInput(session, "builtin_ref_choice", selected = match_ref)
+      }
+    })
 
     # ── Reactive state ─────────────────────────────────────────────────────────────
     ref_seurat   <- reactiveVal(NULL)   # raw Seurat reference
@@ -3026,6 +3092,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
     # ── Load built-in reference (already a spacexr::Reference object) ─────────────
     observeEvent(input$load_builtin_ref, {
       path <- builtin_refs[[input$builtin_ref_choice]]
+      ref_label <- unname(builtin_ref_labels[input$builtin_ref_choice])
 
       if (is.null(path) || !file.exists(path)) {
         output$ref_status <- renderText(
@@ -3041,8 +3108,8 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
       if (file.size(path) < 1e6) {
         output$ref_status <- renderText(paste0(
           "✗ Reference file looks incomplete (", file.size(path),
-          " bytes; expected ~20 MB). It may not have deployed correctly ",
-          "(e.g., a Git-LFS pointer stub). Re-deploy the full CRC_reference_RCTD.rds."
+          " bytes; expected ~20-40 MB). It may not have deployed correctly ",
+          "(e.g., a Git-LFS pointer stub). Re-deploy the full ", basename(path), "."
         ))
         return()
       }
@@ -3058,12 +3125,12 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
           n_cells <- ncol(ref@counts)
           n_types <- length(unique(ref@cell_types))
           output$ref_status <- renderText(
-            paste0("✓ CRC reference loaded: ", n_cells, " cells, ",
+            paste0("✓ ", ref_label, " reference loaded: ", n_cells, " cells, ",
                   n_types, " cell types")
           )
         } else if (inherits(ref, "Seurat")) {
           # It's a Seurat object — go through normal ingest
-          ingest_reference(ref, "Built-in CRC reference")
+          ingest_reference(ref, paste("Built-in", ref_label, "reference"))
 
         } else {
           output$ref_status <- renderText(
@@ -3071,11 +3138,20 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                   ". Expected a Seurat or spacexr::Reference object.")
           )
         }
+
+        # The CRLM reference was built from tumour tissue and has no hepatocytes.
+        if (identical(input$builtin_ref_choice, "crlm")) {
+          showNotification(
+            paste0("\u26a0\ufe0f No hepatocyte population in this reference. Best suited to ",
+                   "tumour and tumour-adjacent regions. In normal-liver regions, hepatocyte ",
+                   "signal will be assigned to other cell types."),
+            type = "warning", duration = 15)
+        }
       }, error = function(e) {
         # Make the classic readRDS failure ("unknown input format") actionable.
         detail <- if (grepl("unknown input format|magic number|not a|corrupt",
                             e$message, ignore.case = TRUE)) {
-          " — the reference file failed to load; it may not have deployed correctly (expected a ~20 MB RDS, not an LFS pointer)."
+          ". The reference file failed to load. It may not have deployed correctly (expected a full RDS, not an LFS pointer)."
         } else ""
         output$ref_status <- renderText(paste0("✗ Error: ", e$message, detail))
       })
@@ -3097,6 +3173,11 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
     deconv_results       <- reactiveVal(NULL)
     deconv_overlap_msg   <- reactiveVal(NULL)   # gene overlap info for the UI
     deconv_labels        <- reactiveVal(character(0))  # region key -> display label
+
+    # RCTD runs in a background R process (see .sr_rctd_async) so a long fit
+    # does not freeze the app for everyone sharing this R process.
+    rctd_task    <- ExtendedTask$new(function(args) .sr_rctd_async(args, session))
+    rctd_pending <- NULL   # region labels and gene-overlap notes for the running job
 
     output$deconv_results_available <- reactive({ !is.null(deconv_results()) })
     outputOptions(output, "deconv_results_available", suspendWhenHidden = FALSE)
@@ -3173,8 +3254,11 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         return()
       }
 
-      showNotification("Running RCTD deconvolution... this may take a minute.",
-                      type = "message", duration = NULL, id = "rctd_running")
+      if (identical(rctd_task$status(), "running")) {
+        showNotification("A deconvolution is already running. Please wait for it to finish.",
+                         type = "warning", duration = 6)
+        return()
+      }
 
       tryCatch({
 
@@ -3265,8 +3349,8 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                    round(.ref_max, 2), "; raw counts usually reach the hundreds). RCTD requires ",
                    "raw integer counts — upload a reference carrying its original counts.")
             if (any(.ref_vals != round(.ref_vals)))
-              showNotification(paste0("The reference counts layer contains non-integer values; ",
-                                      "they were rounded for RCTD. If this layer is normalised ",
+              showNotification(paste0("The reference counts layer contains non-integer values. ",
+                                      "They were rounded for RCTD. If this layer is normalised ",
                                       "rather than raw, the deconvolution is not valid."),
                                type = "warning", duration = 12)
           }
@@ -3298,12 +3382,11 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         if (length(.common_genes) < 100)
           stop("Only ", length(.common_genes), " genes overlap between the reference and ",
                "the spatial data. Check that both use the same species and gene symbols.")
-        .ref_sub <- spacexr::Reference(rctd_ref@counts[.common_genes, , drop = FALSE],
-                                       rctd_ref@cell_types)
-        message("Reference built once for ", length(.common_genes), " shared genes")
+        # The gene-matched Reference() itself is built once in the background
+        # worker (.sr_rctd_worker), from exactly these genes.
 
         # ── Run per group ──────────────────────────────────────────────────────
-        results      <- list()
+        jobs         <- list()
         overlap_msgs <- c()
         labels_map   <- character(0)
 
@@ -3314,14 +3397,6 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
           if (length(spots) == 0) {
             overlap_msgs <- c(overlap_msgs, paste0(grp_label, ": skipped — no spots."))
             next
-          }
-
-          if (length(spots) > 800) {
-            showNotification(
-              paste0(grp_label, ": ", length(spots),
-                    " spots selected — RCTD may take 2-4 minutes."),
-              type = "warning", duration = 8
-            )
           }
 
           # RCTD estimates its platform/noise model from the selected spots,
@@ -3358,9 +3433,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                         "Check that both use the same species and gene symbol convention."))
           }
 
-          # Reuse the reference built before the loop.
           sp_counts_sub <- sp_counts[common_genes, , drop = FALSE]
-          rctd_ref_sub  <- .ref_sub
 
           # ── FIX 2: Coordinates with nUMI ──────────────────────────────────
           coords_all <- Seurat::GetTissueCoordinates(seurat_obj)
@@ -3378,47 +3451,67 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
           # Force alignment
           sp_counts_sub <- sp_counts_sub[, rownames(coords), drop = FALSE]
 
-          # Convert to plain matrix — some spacexr versions don't handle dgCMatrix well
-          sp_counts_mat <- as.matrix(sp_counts_sub)
-          nUMI_vec <- colSums(sp_counts_mat)
-
-          sp_obj <- spacexr::SpatialRNA(coords,
-                                        sp_counts_mat,
-                                        nUMI = nUMI_vec)
-          message("SpatialRNA built OK")
-
-          # Run RCTD
-          # Single-core was leaving RCTD several times slower than it needs to
-          # be. Cap at 4 so a shared deployment is not monopolised.
-          # A shared host must be able to cap this: the public server has 4 cores
-          # for every Shiny app on it, so taking 3 of them for one deconvolution
-          # starves everything else. Deployments set SpatialROI.max_cores; a local
-          # install with cores to spare keeps the previous behaviour.
-          n_cores <- suppressWarnings(as.integer(getOption("SpatialROI.max_cores", NA)))
-          if (is.na(n_cores) || n_cores < 1L)
-            n_cores <- tryCatch(max(1L, min(4L, parallel::detectCores() - 1L)),
-                                error = function(e) 1L)
-          rctd_obj <- spacexr::create.RCTD(sp_obj, rctd_ref_sub,
-                                            max_cores = n_cores,
-                                            CELL_MIN_INSTANCE = 25)
-                              
-          rctd_obj <- spacexr::run.RCTD(rctd_obj, doublet_mode = "full")
-
-
-
-          weights_mat <- rctd_obj@results$weights
-
-          if (!is.matrix(weights_mat)) {
-            weights_mat <- as.matrix(weights_mat)
-          }
-          props <- spacexr::normalize_weights(weights_mat)
-          results[[grp]]    <- as.data.frame(as.matrix(props))
+          # Kept sparse here; the worker converts to a dense matrix, so a large
+          # region is not densified in the shared process.
+          jobs[[length(jobs) + 1]] <- list(key = grp, coords = coords,
+                                           counts = sp_counts_sub)
           labels_map[[grp]] <- grp_label
         }
 
-        if (length(results) == 0) {
+        if (length(jobs) == 0) {
           stop("None of the selected regions had any spots. Draw and save an ROI first.")
         }
+
+        n_total <- sum(vapply(jobs, function(j) ncol(j$counts), integer(1)))
+        if (n_total > 800) {
+          showNotification(.sr_rctd_spot_warning(n_total), type = "warning", duration = 12)
+        }
+
+        # Run RCTD
+        # Single-core was leaving RCTD several times slower than it needs to
+        # be. Cap at 4 so a shared deployment is not monopolised.
+        # A shared host must be able to cap this: the public server has 4 cores
+        # for every Shiny app on it, so taking 3 of them for one deconvolution
+        # starves everything else. Deployments set SpatialROI.max_cores; a local
+        # install with cores to spare keeps the previous behaviour.
+        n_cores <- suppressWarnings(as.integer(getOption("SpatialROI.max_cores", NA)))
+        if (is.na(n_cores) || n_cores < 1L)
+          n_cores <- tryCatch(max(1L, min(4L, parallel::detectCores() - 1L)),
+                              error = function(e) 1L)
+
+        rctd_pending <<- list(overlap_msgs = overlap_msgs, labels_map = labels_map)
+        showNotification("Running RCTD deconvolution in the background...",
+                         type = "message", duration = NULL, id = "rctd_running")
+        shinyjs::disable("run_deconv")
+        rctd_task$invoke(list(jobs           = jobs,
+                              ref_counts     = rctd_ref@counts[.common_genes, , drop = FALSE],
+                              ref_cell_types = rctd_ref@cell_types,
+                              n_cores        = n_cores))
+
+      }, error = function(e) {
+        removeNotification(id = "rctd_running")
+        showNotification(paste("RCTD Error:", e$message), type = "error", duration = 15)
+      })
+    })
+
+    # ── Collect the background RCTD result ────────────────────────────────────────
+    observeEvent(rctd_task$status(), {
+      st <- rctd_task$status()
+      if (st == "running" || st == "initial") return()
+      removeNotification(id = "rctd_running")
+      shinyjs::enable("run_deconv")
+
+      if (st == "error") {
+        msg <- tryCatch({ rctd_task$result(); "unknown error" },
+                        error = function(e) conditionMessage(e))
+        showNotification(paste("RCTD Error:", msg), type = "error", duration = 15)
+        return()
+      }
+
+      tryCatch({
+        results      <- rctd_task$result()
+        overlap_msgs <- rctd_pending$overlap_msgs
+        labels_map   <- rctd_pending$labels_map[names(results)]
 
         # Warn if gene overlap is low
         for (msg in overlap_msgs) {
@@ -4591,7 +4684,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         interrupted <- grepl("future.*interrupted|Calculation interrupted",
                              conditionMessage(e), ignore.case = TRUE)
         msg <- if (interrupted) {
-          "Gene-set calculation was interrupted. Click Calculate again; if it repeats, use Mean expression and report the selected scoring method."
+          "Gene-set calculation was interrupted. Click Calculate again. If it repeats, use Mean expression and report the selected scoring method."
         } else {
           paste("Gene-set calculation failed:", conditionMessage(e))
         }
@@ -5987,10 +6080,10 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
 
               if (nrow(coords) < 30) {
                 deg_moran_note(paste0(
-                  "Moran's I needs at least 30 spots with coordinates; this section has ",
+                  "Moran's I needs at least 30 spots with coordinates. This section has ",
                   nrow(coords), "."))
                 showNotification(paste0("Moran's I skipped: only ", nrow(coords),
-                                        " spots have coordinates; at least 30 are needed."),
+                                        " spots have coordinates. At least 30 are needed."),
                                  type = "warning", duration = 9, id = "moran_skip")
               }
               if (nrow(coords) >= 30) {
@@ -6005,7 +6098,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                 spatial_assay <- norm_src$assay
                 deg_moran_assay(spatial_assay)
                 if (!isTRUE(norm_src$normalised))
-                  showNotification(paste0("No log-normalised layer was found; Moran's I used the '",
+                  showNotification(paste0("No log-normalised layer was found. Moran's I used the '",
                                           spatial_assay, "' assay as stored. Values on a raw-count ",
                                           "scale reflect sequencing depth as much as spatial structure."),
                                    type = "warning", duration = 12, id = "moran_scale")
@@ -6138,7 +6231,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
           # Say how many genes were tested, not only how many passed — showing
           # the DEG count alone read as "N tested, N significant".
           showNotification(paste0("Tested ", format(nrow(tested_markers), big.mark = ","),
-                                  " genes; ", format(nrow(markers), big.mark = ","),
+                                  " genes. ", format(nrow(markers), big.mark = ","),
                                   " pass FDR < ", deg_fdr, " and |log2FC| ≥ ", deg_lfc),
                            type = "message", duration = 8)
 
@@ -7035,7 +7128,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
     MS_ALIASES <- list(
       gene = c("gene", "genes", "symbol", "gene_symbol", "names"),
       avg_log2FC = c("avg_log2fc", "avg_logfc", "log2fc", "logfc",
-                     "logfoldchange", "logfoldchanges"),
+                     "logfoldchange", "logfoldchanges", "log2foldchange"),
       p_val = c("p_val", "pvalue", "p_value", "pvals", "pval"),
       p_val_adj = c("p_val_adj", "padj", "p_adj", "fdr", "qvalue", "pvals_adj")
     )
@@ -7058,6 +7151,12 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
           hit <- hit[hit > 0L]
           if (length(hit) > 0) colnames(d)[hit[1]] <- canonical
         }
+        # write.csv() of a DESeq2 results table or a FindMarkers data frame keeps
+        # gene names as row names, which come back as an unnamed first column
+        # (read.csv calls it "X"). Use it as the gene column.
+        if (!"gene" %in% colnames(d) && ncol(d) > 0 && colnames(d)[1] == "X" &&
+            is.character(d[[1]]))
+          colnames(d)[1] <- "gene"
         miss <- setdiff(MS_CORE, colnames(d))
         if (length(miss) > 0) {
           problems <- c(problems, paste0(nm,
@@ -7104,10 +7203,10 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
           if (isTRUE(d$.complete_for_enrichment[1]) && any(is.finite(raw_p))) {
             d$p_val_adj <- stats::p.adjust(raw_p, method = "BH")
             cautions <- c(cautions, paste0(nm,
-              ": adjusted p-values were not supplied; BH values were calculated across the confirmed complete tested-gene table."))
+              ": adjusted p-values were not supplied. BH values were calculated across the confirmed complete tested-gene table."))
           } else {
             cautions <- c(cautions, paste0(nm,
-              ": adjusted p-values were not supplied. They were not reconstructed from an incomplete or unconfirmed table; significance-based summaries will be unavailable."))
+              ": adjusted p-values were not supplied. They were not reconstructed from an incomplete or unconfirmed table, so significance-based summaries will be unavailable."))
           }
         }
 
@@ -7127,7 +7226,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         if (is.na(ref) || identical(tolower(ref), "unspecified") ||
             !grepl("^rest", trimws(tolower(ref))))
           cautions <- c(cautions, paste0(nm,
-            ": ROI-versus-rest provenance was not confirmed; interpret cross-file comparisons descriptively."))
+            ": ROI-versus-rest provenance was not confirmed. Interpret cross-file comparisons descriptively."))
 
         # Harmonized settings are preferred, but custom files are still loaded.
         # Two different problems used to share one alarming message. Differing
@@ -7153,7 +7252,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
           pipe <- pipe[vapply(pipe, differs, logical(1))]
           if (length(pipe) > 0)
             notes <- c(notes, paste0(nm, ": ", paste(pipe, collapse = " and "),
-              " differs from the loaded tables. Effect sizes stay on a comparable scale; direction and ranking are unaffected."))
+              " differs from the loaded tables. Effect sizes stay on a comparable scale. Direction and ranking are unaffected."))
         }
 
         # Excel rewrites symbols like SEPT2 as dates; catch it rather than
@@ -7211,7 +7310,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
 
       if (n_filtered > 0)
         showNotification(paste0(n_filtered, " of ", added,
-          " table(s) are threshold-filtered; results are descriptive."),
+          " table(s) are threshold-filtered. Results are descriptive."),
           type = "warning", duration = 8)
       invisible(NULL)
     }
@@ -7251,7 +7350,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
       if (n < 2) paste0("1 valid ROI loaded. Add at least one more ROI table.")
       else {
         common_n <- length(Reduce(intersect, lapply(sg, function(d) as.character(d$gene))))
-        paste0(n, " ROI tables loaded; ", format(common_n, big.mark = ","),
+        paste0(n, " ROI tables loaded. ", format(common_n, big.mark = ","),
                " genes were reported in every ROI table.")
       }
     })
@@ -7305,7 +7404,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         if (j <= i) next
         A <- sg[[ks[i]]]; B <- sg[[ks[j]]]
         shared <- intersect(A$gene, B$gene)
-        if (length(shared) < 10) next
+        if (length(shared) < 5) next
         a <- A[match(shared, A$gene), ]; b <- B[match(shared, B$gene), ]
         both <- shared
         agree <- if (length(both) > 0) {
@@ -7330,7 +7429,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
     output$ms_concordance <- renderTable({
       df <- ms_concordance_df()
       if (is.null(df)) return(data.frame(Message = "Load at least two regions."))
-      if (nrow(df) == 0) return(data.frame(Message = "Too few shared genes between these regions."))
+      if (nrow(df) == 0) return(data.frame(Message = "Too few shared genes between these regions (every pair shares fewer than 5)."))
       df
     }, rownames = FALSE)
 
@@ -7355,7 +7454,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
           if (tight) "#e74c3c" else "#b9ddc8",
           if (tight) "#fdecea" else "#eef7f2",
           if (tight) "#7b241c" else "#33604a"),
-        sprintf("%d tables uploaded; %s genes shared across all %s. Individual tables report %s–%s genes; a typical pair shares %s genes.",
+        sprintf("%d tables uploaded. %s genes are shared across all %s. Individual tables report %s–%s genes, and a typical pair shares %s genes.",
                 n_tab, fmt(common),
                 if (n_tab == 2) "two" else if (n_tab == 3) "three" else paste(n_tab, "of them"),
                 fmt(min(sizes)), fmt(max(sizes)), fmt(round(stats::median(ov)))))
@@ -7415,44 +7514,6 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
       filename = function() paste0("shared_gene_patterns_", format(Sys.time(), "%Y%m%d"), ".csv"),
       content = function(f) { df <- ms_consensus_df(); req(!is.null(df)); write.csv(df, f, row.names = FALSE) })
 
-    # ── 5. Disagreement ───────────────────────────────────────────────────────
-    ms_disagree_df <- reactive({
-      sg <- ms_sigs(); if (length(sg) < 2) return(NULL)
-      common <- ms_common_genes()
-      all <- do.call(rbind, lapply(names(sg), function(k) {
-        d <- sg[[k]][sg[[k]]$gene %in% common, , drop = FALSE]
-        data.frame(key = k, gene = d$gene, lfc = d$avg_log2FC, padj = d$p_val_adj,
-                   stringsAsFactors = FALSE)
-      }))
-      sp <- split(all, all$gene)
-      sp <- sp[vapply(sp, nrow, integer(1)) >= 2]
-      if (length(sp) == 0) return(data.frame())
-      keep <- vapply(sp, function(x) {
-        any(is.finite(x$lfc)) &&
-          any(x$lfc > 0) && any(x$lfc < 0)
-      }, logical(1))
-      sp <- sp[keep]
-      if (length(sp) == 0) return(data.frame())
-      out <- data.frame(
-        Gene    = names(sp),
-        Up_in   = vapply(sp, function(x) paste(x$key[x$lfc > 0], collapse = "; "), character(1)),
-        Down_in = vapply(sp, function(x) paste(x$key[x$lfc < 0], collapse = "; "), character(1)),
-        Max_abs_log2FC = round(vapply(sp, function(x) max(abs(x$lfc)), numeric(1)), 3),
-        Spread_log2FC  = round(vapply(sp, function(x) diff(range(x$lfc)), numeric(1)), 3),
-        row.names = NULL, stringsAsFactors = FALSE)
-      out[order(-out$Spread_log2FC), ]
-    })
-
-    output$ms_disagree <- renderTable({
-      df <- ms_disagree_df()
-      if (is.null(df)) return(data.frame(Message = "Load at least two regions."))
-      if (nrow(df) == 0) return(data.frame(Message = "No genes point in opposite directions — the regions agree."))
-      head(df, 150)
-    }, rownames = FALSE)
-
-    output$ms_dl_disagree <- downloadHandler(
-      filename = function() paste0("disagreeing_genes_", format(Sys.time(), "%Y%m%d"), ".csv"),
-      content = function(f) { df <- ms_disagree_df(); req(!is.null(df)); write.csv(df, f, row.names = FALSE) })
 
     # ── 3. Gene x region effect-size heatmap ──────────────────────────────────
     output$ms_gene_heatmap <- renderPlot({
@@ -7461,8 +7522,19 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         ms_gene_rv(NULL); plot.new()
         text(.5, .5, "Load DEG tables to see effect sizes.", cex = 1.2, col = "grey50"); return()
       }
+      # Half the rows are the strongest shared up-regulated genes and half the
+      # strongest shared down-regulated ones. Taking the overall top N let one
+      # direction fill the whole plot whenever its fold changes ran larger (a
+      # normal region against tumour-rich tissue came out all blue). If one
+      # direction has too few genes, the other fills the remaining rows. cons is
+      # already ranked by direction agreement, then average |log2FC|.
       n <- min(nrow(cons), if (is.null(input$ms_n_heat)) 30 else input$ms_n_heat)
-      genes <- head(cons$Gene, n)
+      up   <- cons$Gene[cons$Mean_log2FC > 0]
+      down <- cons$Gene[cons$Mean_log2FC < 0]
+      n_up   <- min(length(up), ceiling(n / 2))
+      n_down <- min(length(down), n - n_up)
+      n_up   <- min(length(up), n - n_down)
+      genes <- c(head(up, n_up), head(down, n_down))
       rows <- list()
       for (k in names(sg)) {
         d <- sg[[k]]; idx <- match(genes, d$gene)
@@ -7477,7 +7549,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                              midpoint = 0, na.value = "grey88") +
         labs(x = NULL, y = NULL, fill = "log2FC",
              title = "Shared genes: log2 fold change across ROIs",
-             subtitle = "Only genes reported in every uploaded table are shown") +
+             subtitle = "Genes reported in every table \u00b7 strongest shared up- and down-regulated genes") +
         theme_minimal(base_size = 11) +
         theme(axis.text.x = element_text(angle = 35, hjust = 1),
               panel.grid = element_blank(),
@@ -7560,7 +7632,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
         scale_fill_gradient(low = "#F2F5F9", high = "#8B0000") +
         labs(x = NULL, y = NULL, fill = "-log10 FDR",
              title = "Hallmark enrichment per region",
-             subtitle = paste0("\u2733 = FDR < 0.05  \u00b7  ordered by how many of the ",
+             subtitle = paste0("* = FDR < 0.05  \u00b7  ordered by how many of the ",
                                nreg, " regions are enriched  ·  ",
                                ms_species_label(), " Hallmark library")) +
         theme_minimal(base_size = 10) +

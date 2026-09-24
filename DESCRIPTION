@@ -35,6 +35,8 @@ Imports:
     ggrepel,
     scales,
     future,
+    later,
+    promises,
     spdep,
     Matrix,
     reshape2,
@@ -50,6 +52,7 @@ Imports:
     grid,
     methods
 Suggests:
+    callr,
     spacexr,
     presto,
     msigdbr,
