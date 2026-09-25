@@ -43,12 +43,13 @@ Seurat_object <- UpdateSeuratObject(Seurat_object)
 run_spatial_selector(Seurat_object, sample_name = "MyExperiment", show_image = TRUE)
 ```
 
-Or upload through the app interface in the Visualization section using the 📤 **Upload Data**
-panel, which accepts either a Seurat `.rds` or a raw 10x Visium SpaceRanger output directory
-(filtered feature-barcode `.h5` plus the accompanying `spatial/` folder); SpaceRanger input is
-quality-filtered and log-normalised on load.
+Or load data from the **Visualization** panel of the app, under **Data Source**:
 
-**Requirements:** Seurat object with spatial coordinates, raw or normalized expression data, and H&E image.
+- **10x Visium Seurat object (.rds)**: a processed object with a spatial image, spot
+  coordinates and log-normalised expression.
+- **10x Visium Space Ranger output (.zip)**: the Space Ranger output folder (filtered
+  feature-barcode `.h5` plus the `spatial/` folder, with no `.gz` files), compressed as one
+  `.zip`. Spots are quality-filtered and log-normalised on load.
 
 ### Supported input and size
 
@@ -63,9 +64,8 @@ quality-filtered and log-normalised on load.
   have different data structures and are not validated here. The app stops with
   an explicit message when the uploaded spatial image is not recognized as
   Visium.
-- The local Shiny request limit is **500 MB**. A hosted reverse proxy may impose a
-  lower limit and return HTTP 413 before the request reaches SpatialROI. Use local
-  analysis for large objects.
+- Uploads are limited to **150 MB on the public server** and **500 MB in a local
+  installation**. Use a local installation for large objects.
 - RDS files expand in memory. The 32-MB example requires approximately 430 MB after
   loading; memory requirements increase with spots, assays, and image size.
 
@@ -115,7 +115,8 @@ This function supports multiple ROI selections and returns a vector of spot IDs,
 - 📊 **Spot Clustering** - Identify spatial domains using graph-based clustering methods
 - 📈 **DEG Analysis** - Find differentially expressed genes between selected groups or clusters
 - ⚖️ **Feature Comparison** - Statistical comparison plots with parametric/non-parametric tests
-- 💾 **Data Export** - Download spot IDs, DEG results, and Seurat subsets
+- 🧩 **Multi-Sample Comparison** - Compare ROI-versus-rest DEG tables across sections or studies without pooling expression data
+- 💾 **Data Export** - Save and reload ROI spot indices, and download DEG results and Seurat subsets
 - 🖼️ **Figure Export** - Download UMAP, volcano, Moran, violin, and heatmap figures as PDFs
 
 ---
@@ -154,10 +155,10 @@ carries a `roi` column.
 
 ### Upload limits
 
-Uploads are capped at 500 MB. A Seurat object needs roughly three times its file
-size in memory once loaded, so on the shared public server — where sessions
-compete for memory — large sections are better analysed with a local
-installation. Locally the cap can be raised before launching:
+Uploads are limited to 150 MB on the public server and 500 MB in a local
+installation. A Seurat object needs roughly three times its file size in memory
+once loaded, so large sections are better analysed locally. The local limit can
+be raised before launching:
 
 ```r
 options(shiny.maxRequestSize = 2 * 1024^3)   # 2 GB
@@ -165,7 +166,11 @@ options(shiny.maxRequestSize = 2 * 1024^3)   # 2 GB
 
 ## Reference Datasets
 
-Curated RCTD reference datasets for LUAD/LUSC, RCC, breast cancer, HCC, OSCC, and mouse brain are hosted on Zenodo (the colorectal cancer reference ships with the package itself):
+Two RCTD references are built into SpatialROI and can be selected in the deconvolution
+panel: colorectal cancer (CRC, from GSE132465) and colorectal cancer liver metastasis
+(CRLM, from GSE225857). Curated references for lung adenocarcinoma, lung squamous cell
+carcinoma, renal cell carcinoma, breast cancer, hepatocellular carcinoma, oral squamous
+cell carcinoma, CRLM and mouse brain are hosted on Zenodo:
 
 DOI: https://doi.org/10.5281/zenodo.20554051
 
@@ -186,9 +191,6 @@ or `RNA` raw-count assay.
 
 Static statistical plots are exported as publication-ready PDFs.
 
-Deployment owners can use [`deployment/README.md`](deployment/README.md) and the
-read-only verification script to reproduce the validated `spacexr` API and check
-the packaged example, reference, and Hallmark resources.
 
 
 ---
@@ -254,7 +256,9 @@ SpatialROI is designed to facilitate intuitive visualization, region selection, 
 
 ## Acknowledgments
 
-This work is supported by NIH grants including NHGRI R01HG014023, NLM 4R00LM013089, 5R01LM012011, and by U.S. NIH grants R35GM158094 and R01GM134020, as well as NSF grants DBI-2238093, DBI-2422619, IIS-2211597, and MCB-2205148. We also gratefully acknowledge the support and computational resources provided by the University of Pittsburgh Center for Research Computing and Data (CRCD), which enabled hosting the development of the SpatialROI application.
+This research was supported in part by the University of Pittsburgh Center for Research Computing and Data, RRID:SCR_022735, through the resources provided. Specifically, this work used the HTC cluster, which is supported by NIH award number S10OD028483.
+
+This work was supported by NIH grants including NHGRI R01HG014023, NLM 4R00LM013089, 5R01LM012011, and by U.S. NIH grants R35GM158094 and R01GM134020, as well as NSF grants DBI-2238093, DBI-2422619, IIS-2211597, and MCB-2205148.
 
 ---
 
