@@ -54,7 +54,7 @@ subset_Seurat_object <- subset(Seurat_object, cells = selected_spots)
 ```
 
 **Key Features:**
-- Click-and-drag to select regions of interest
+- Freehand drawing of regions of interest on the H&E image
 - Returns spot IDs for downstream analysis
 - Enables region-specific analyses
 
@@ -145,7 +145,12 @@ degs <- run_deg_analysis(
 
 **Comparison Types:**
 - `"group1_vs_rest"`: Compare selected spots against all other spots
-- `"group1_vs_group2"`: Compare two specific groups 
+- `"group1_vs_group2"`: Compare two specific groups
+
+`min_pct` (default 0.1) and `logfc_threshold` (default 0.25) are passed to Seurat's
+`FindMarkers`, so genes below either cut-off are not tested. The app's DEG panel
+instead tests every gene that passes `min.pct` and applies the fold-change cut-off
+afterwards. To match the app defaults, set `logfc_threshold = 0` and `min_pct = 0.05`.
 
 ## Examining DEG Results
 ```{r eval=FALSE}
@@ -163,10 +168,10 @@ write.csv(degs, "DEG_results_all.csv", row.names = FALSE)
 **Result Columns:**
 - `gene`: Gene name
 - `avg_log2FC`: Average log2 fold change
-- `pct.1`: Percentage of cells expressing in group 1
-- `pct.2`: Percentage of cells expressing in group 2
+- `pct.1`: Fraction of spots expressing the gene in group 1
+- `pct.2`: Fraction of spots expressing the gene in group 2
 - `p_val`: Unadjusted p-value
-- `p_val_adj`: Adjusted p-value (for multiple testing)
+- `p_val_adj`: Benjamini–Hochberg adjusted p-value
 
 Results are automatically ranked by adjusted p-value.
 

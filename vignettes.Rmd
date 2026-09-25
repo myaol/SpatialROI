@@ -15,456 +15,238 @@ knitr::opts_chunk$set(
 )
 ```
 
-# Getting Started with SpatialROI
+SpatialROI is a Shiny application for region-based analysis of 10x Visium data.
+You draw regions of interest (ROIs) on the H&E image, then analyse and compare
+them without writing code. This guide follows the app from left to right in the
+sidebar. The hosted version is at <https://shiny.crc.pitt.edu/spatial_api/>.
 
-SpatialROI is an interactive web application for region-specific analysis and visualization of spatial transcriptomics data. This vignette provides a step-by-step walkthrough of SpatialROI's functionality using the built-in example dataset.
-
-## Launching the Application
-
-To launch SpatialROI, run the following command in R:
-
-```{r eval=FALSE}
-library(SpatialROI)
-run_SpatialROI("demo")
-```
-
-The application will open in your default web browser. You can simply click "Start Analysis" in the main intro page.
-
----
-
-## Quick ROI Selection with `draw_ROI()`
-
-**For users who need immediate spot selection without the full analysis interface:**
-
-The `draw_ROI()` function provides a lightweight interactive tool for quickly selecting regions of interest and obtaining spot IDs for downstream analysis.
-
-### Usage
+## Installation and launch
 
 ```{r eval=FALSE}
-library(SpatialROI)
+if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+BiocManager::install(c("Seurat", "GSVA"))
+devtools::install_github("myaol/SpatialROI", dependencies = TRUE)
 
-# Load your data
+library(SpatialROI)
+run_SpatialROI("demo")                      # start with the bundled CRC section
+
 my_data <- readRDS("path/to/your_seurat.rds")
-
-# Launch interactive ROI selector
-selected_spots <- draw_ROI(my_data, sample_name = "MyExperiment")
-
-# Use the returned spot IDs
-print(length(selected_spots))  # Number of spots selected
-subset_data <- subset(my_data, cells = selected_spots)
+run_spatial_selector(my_data, sample_name = "MyExperiment")   # start with your own object
 ```
 
-### Key Features
-
-- **🖊️ Freehand drawing** - Click the ✏️ pencil button to draw custom irregular regions
-- **📏 Interactive controls** - Adjust spot size and H&E tissue opacity in real-time
-- **💾 Immediate export** - Returns spot IDs directly for use in your analysis pipeline
-
-### When to Use Each Tool
-
-| Tool | Best For | Output |
-|------|----------|--------|
-| `draw_ROI()` | Quick spot selection, multiple ROI extraction, preprocessing | Spot ID vector |
-| `run_SpatialROI("demo")` or `run_spatial_selector(object)` | Full analysis: DEGs, clustering, comparisons, gene sets | Interactive analysis app |
-
-**Note:** `draw_ROI()` returns spot IDs for lightweight scripted use. The full
-SpatialROI app treats every saved ROI as a named region and optionally combines
-multiple ROIs into a named group. Both ROI-versus-ROI and group-versus-group
-comparisons are available from the same region selectors.
-
----
-
-## Data Loading
-
-SpatialROI provides two convenient options for loading data: using a built-in demo dataset or uploading your own Seurat object.
-
-### Option 1: Using Demo Dataset (Recommended for First-Time Users)
-
-You can launch the app with the preloaded example dataset by running:
+Cell-type deconvolution needs `spacexr`, and differential expression runs much
+faster with `presto`. Both are installed from GitHub:
 
 ```{r eval=FALSE}
-library(SpatialROI)
-run_SpatialROI("demo")
+remotes::install_github("dmcable/spacexr@698d5b09e6f70d75d7a5284cf90f8ba4adcb7205")
+remotes::install_github("immunogenomics/presto")
 ```
 
-#### Example Data
-
-The demo dataset is one human colorectal cancer Visium tissue section from
-Valdeolivas et al. (2024), containing 17,529 genes and 1,253 tissue spots, an H&E
-image, and a preprocessed Seurat object. Users can load this example for testing
-or demonstration purposes.
-
-### Option 2: Uploading Your Own Data
-
-If you have your own spatial transcriptomics dataset (e.g., a .rds or .rdata file containing a Seurat object), you can launch the app with it:
-
-```{r eval=FALSE}
-library(SpatialROI)
-my_data <- readRDS("path/to/your_seurat.rds")
-run_spatial_selector(my_data, sample_name = "MyExperiment")
-```
-
-Alternatively, after launching the app with the demo data, you can:
-
-1. Go to the **"Visualization"** tab on the left in the app interface.
-2. On the right panel, click **"Upload Data"** to select and upload your .rds file.
-3. After the "Upload complete" message appears, click **"Load Uploaded Data"**.
-4. This will replace the current dataset and begin analysis on your own data.
-
-**Note:** Uploading new data will reset any existing ROIs or analyses from the current session.
-
----
-
-## Visualization
-
-Once your dataset is loaded, you'll be directed to the interactive visualization page, where the H&E image is displayed with spatial spots overlaid. This section introduces the layout and basic tools for customizing your view before analysis.
-
-### Interface Overview
-
-At the top left of the image panel, there are **"+"** and **"−"** buttons for zooming in and out, and a **pen icon** that activates ROI selection mode. You'll see your tissue H&E image displayed in the main center panel, with circular spot overlays indicating transcriptomic measurements.
-
-### Zoom and Pan
-
-- **Zoom In/Out:** Use your mouse scroll wheel over the image, or use the zoom buttons (**+** and **−**) in the top-left corner of the image panel.
-- **Pan:** Click and drag anywhere on the image to move across different tissue regions.
-
-### Adjusting Spot Size
-
-1. Locate the **"Spot Size"** slider in the top right sidebar.
-2. Drag left to decrease spot size (useful when zoomed out or for dense arrays).
-3. Drag right to increase spot size (helpful when zoomed in or for sparse arrays).
-
-The default setting works well for most Visium arrays but can be adjusted for visual clarity.
-
-### Adjusting H&E Opacity
-
-1. Locate the **"H&E Opacity"** slider in the top right sidebar.
-2. Drag the slider left to make the H&E image more transparent (0% = fully transparent).
-3. Drag the slider right to make it more opaque (100% = fully opaque).
-
-This allows better visibility of the overlaid spatial spots. **Recommended setting:** 60–80% for optimal balance between tissue detail and spot visibility.
-
----
-
-## Interactive ROI Selection
-
-This is one of SpatialROI's key features, allowing you to define regions of interest (ROIs) directly on tissue images. This is useful for grouping spatial regions for downstream comparison.
-
-### Drawing ROIs
-
-1. **Activate Drawing Mode:**  
-   Click the **pen icon** at the top-left of the image panel to enter ROI selection mode. A toolbar will appear with freeform drawing tools.
-
-2. **Draw and Save a Named ROI:**
-   Draw an irregular region. To enhance visibility, reduce the **Spot Size** and increase the **H&E Opacity**. The selected spots will turn yellow.  
-   Enter a biologically meaningful name (for example, `Tumor edge 1`) and click
-   **Save region**. Repeat this step for each distinct component you want to keep.
-
-3. **Optionally combine ROIs into groups:**
-   Select two or more saved ROIs, enter a group name (for example,
-   `Tumor-adjacent`), and click **Group**. A group is the union of its component
-   ROIs; the original ROIs remain available for ROI-level analysis.
-
-4. **Visualize ROIs or groups on the map:**
-   Choose an ROI, a group, or all ROIs under **Show on map**, then enable
-   **Show ROIs on Map**. Enable **Show ROI contours** for high-contrast boundaries.
-
-5. **Reset or Redraw:**
-   Click **"Clear Selection"** to clear all highlighted spots and start a new ROI selection.
-
-6. **Export a region:**
-   Select a saved ROI or group under **Show on map**, then use **Save region
-   (.rds)** to export the corresponding Seurat subset.
-
-### Two comparison designs
-
-**Example A — ROI versus ROI.** Draw and save two single regions, such as
-`TLS-like region` and `Tumor region`. In the DEG or Compare panel, set these as
-Side A and Side B. Use this design when each boundary itself represents the
-biological unit of interest.
-
-**Example B — group versus group.** Draw several separate tumor-edge regions and
-save them as `Tumor edge 1`, `Tumor edge 2`, and so on; combine them into a named
-`Tumor-adjacent` group. Repeat for several normal-edge regions and combine them
-as `Normal-adjacent`. Compare the two named groups. Grouping unions the selected
-spots for a within-section exploratory comparison; it does not create additional
-patient-level replicates.
-
----
-
-## Visualization of Features and Gene Set Scoring
-
-SpatialROI allows users to explore and visualize spatial gene activity through both **single-feature mapping** and **gene set scoring**.
-
-### Visualizing Features
-
-After loading your data, navigate to the **"Feature Selection"** panel to explore spatial features.
-
-#### Feature Selection
-
-- Under **Feature Type**, choose from:
-  - **None** — disables feature display
-  - **Gene Expression** — visualize the spatial distribution of a specific gene
-  - **Metadata** — show spatial patterns of any sample or cell-level metadata
-- When **Gene Expression** is selected, a dropdown of available genes will appear. Selecting one gene or typing in one gene name will automatically render its expression overlay on the H&E image.
-
-#### Color Scheme
-
-- You can customize how features are visualized using the **Color Scheme** section.
-- Available palettes include:
-  - *Grey to Red*
-  - *Blue–White–Red*
-  - *Rainbow*
-- The selected color gradient will immediately apply to the expression overlay, allowing users to interpret expression intensity spatially.
-
-### Gene Set Scoring
-
-SpatialROI also supports **gene set based analysis** to visualize composite activity scores from curated or custom gene lists.
-
-#### Species Selection
-
-- Choose between **Human** or **Mouse** from the **Select Species** dropdown.
-- Gene symbols will be automatically updated to match the selected species.
-
-#### Selecting Gene Sets
-
-- Under **Select Signature**, you can choose from:
-  - **Predefined Signatures** curated from the **CellMarker 2.0** database (Hu *et al.*, *NAR* 2023), including immune, stromal, and cancer-related markers such as *immune: B cells* or *cancer: epithelial*.
-  - After selecting a predefined signature, click **Load Selected Signature** to populate the gene list automatically. You can freely edit or add genes afterward.
-  - **Custom Gene Sets** — Manually input/delete genes in the **Gene Input** box (one gene per line).
-
-#### Scoring Methods
-
-- In the **Parameters** section, select your preferred scoring method:
-  - **Mean** — computes the average expression of all genes in the set
-  - **AddModuleScore** — implements Seurat's control-feature–adjusted score
-  - **Rank-based enrichment** — computes a within-spot mean-rank difference,
-    scaled approximately to [-1, 1]. This is implemented directly by SpatialROI
-    and is **not** the GSVA package statistic.
-- Select a color scheme (*Grey to Red*, *Blue–White–Red*, or *Rainbow*).
-- Click **Calculate Score** to compute scores. Once finished, results will appear as an overlay on the main H&E slide, highlighting regions with enriched expression.
-
-#### Saving and Reusing Gene Sets
-
-- After scoring, click **Save to Gene Set** to store the calculated results for downstream analyses or re-visualization.
-
-SpatialROI thus integrates flexible **feature-level** visualization with **multi-gene set analysis**, enabling users to map spatial expression patterns and functional gene activities directly onto tissue histology for biologically meaningful interpretation.
-
----
-
-## ROI-based Clustering
-
-Use ROI-based clustering to identify transcriptionally distinct regions within your tissue.
-
-### Running Clustering Analysis
-
-1. Go to the **"Clusters"** tab.
-2. Under **"Cluster which spots"**, choose the scope of analysis:
-   - **All Spots** — cluster all spots in the tissue
-   - **Any saved ROI** — cluster only that morphology-defined region
-   - **Any saved group** — cluster the union of its component ROIs
-
-3. Set clustering parameters:
-   - **Resolution** controls the number of clusters (range 0.1–2.0, default 0.8).
-   - **Principal Components (PCs)** specify how many components are used for clustering (default 30).
-
-4. Click **"Run Clustering"** to start. The system will process your data and assign each spot to a cluster.
-
-### Visualizing Clusters
-
-When clustering is complete, results will appear on the right panel, showing the selected scope, number of spots, resolution, number of clusters, and the spot count in each cluster. A **UMAP** plot will also be displayed for an overview of cluster separation.
-
-Click **"Show on Map"** to overlay the cluster results on the H&E image. Each cluster will appear in a different color, and unselected spots will turn grey.
-
-The clustering results are automatically saved in SpatialROI for further analysis, such as differential expression or ROI comparison.
-
----
-
-## Differential Expression Analysis
-
-Identify genes that are differentially expressed between any two saved ROIs or
-groups, or between one saved region and the rest of its tissue section.
-
-### Setting Up the Comparison
-
-1. Go to the **"DEGs"** tab.
-
-2. Select **Side A** as any ROI or group. Select **Side B** as another ROI/group
-   or **Rest of tissue**. This supports ROI-versus-ROI, group-versus-group,
-   mixed ROI-versus-group, and region-versus-rest comparisons.
-
-3. Click **"Find DEGs"** to start.  
-   SpatialROI automatically runs Seurat's `FindMarkers` function and returns the **top differentially expressed genes** ranked by *p-value*. Each result includes the gene name, average log2 fold change (log2FC), and adjusted p-value (*p_adj*).
-
-   When comparing clusters (e.g., one vs rest), the output also includes:
-   - **pct.1**: percentage of spots expressing the gene in the target cluster
-   - **pct.2**: percentage of spots expressing the gene in all other clusters
-   
-   These help indicate how specific the gene is to each cluster.
-
-4. To download all DEGs, click **"Download DEG Results"** to save the full results table as a CSV file.
-
-### Viewing Results
-
-- The results table shows:
-  - Gene name
-  - Average log2 fold change
-  - Adjusted p-value
-  - pct.1 and pct.2 (proportion of spots expressing the gene in each group)
-- You can sort or search the table, and export results for further analysis.
-
----
-
-## Feature or Group Comparison Across Regions
-
-Compare the expression of a single feature, gene set, or metadata variable between regions.
-
-### Single Feature Group vs Group Comparison
-
-1. Go to the **"Compare"** tab, then select the **Feature** panel on the right.
-
-2. Under **Feature Type**, choose one of the following:
-   - **Gene** — compare expression of a single gene
-   - **Metadata** — compare continuous or categorical variables
-   - **Gene Set** — compare pre-defined or custom gene set scores
-
-3. Select any saved ROI or group for **Side A**, and any ROI/group or the rest
-   of tissue for **Side B**.
-
-4. Choose the **Statistical Test**:
-   - **t-test** — compares group means (use for normally distributed data)
-   - **Wilcoxon/Mann–Whitney** — non-parametric alternative (use when data are not normally distributed)
-
-5. Click **"Generate Plot"**.  
-   A violin plot will display the distribution of the selected feature across regions. The number of spots and p-values from the statistical test will appear on the plot.
-
-### Feature vs Feature Comparison Within the Same Region
-
-1. Select two features to compare (Feature 1 and Feature 2).
-2. Choose the spot population under **Use Spots**: all spots, any saved ROI, or
-   any saved group.
-3. Pick the desired statistical test (t-test or Wilcoxon/Mann–Whitney) and click **"Compare"**.  
-   A violin plot will show the distributions of the two features in the selected region, along with p-values and sample counts.
-
-This function helps identify spatial differences in gene expression, module scores, or metadata between regions or within clusters, offering biological insight into spatial heterogeneity across the tissue.
-
----
-
-## Tips for Optimal Results
-
-### ROI Selection Best Practices
-
-- **Start broad, then refine**: Create larger ROIs first to capture main regions, then zoom in to define sub-regions
-- **Use appropriate H&E opacity**:
-  - 70-80% when you need to see tissue morphology clearly
-  - 40-60% when you need to see spot locations clearly
-  - Toggle opacity as you draw to ensure accurate selection
-- **Adjust spot size based on zoom level**:
-  - Smaller spots (2-4) when zoomed out for overview
-  - Larger spots (6-10) when zoomed in for precise selection
-
-### Visualization Tips
-
-- **Color scheme selection**:
-  - Among the available palettes (Grey to Red, Blue–White–Red, Rainbow), we recommend using Blue–White–Red for clearer and more interpretable contrast
-  - If you visualize a single gene and later a gene set, the new visualization will replace the previous one by default
-  - For better interpretability, consider using different color schemes for different visualization types (e.g., Blue–White–Red for gene expression, Rainbow for gene set scores)
-- **Interactive exploration**:
-  - Use zoom and pan freely to inspect spatial regions of interest in greater detail
-  - You may also consider loading the same tissue image into QuPath or other specialized digital pathology tools to compare ROIs and enhance visualization quality or annotation capabilities
-
-### Analysis Guidelines
-
-- **Preprocessing**:
-  - Filter low-quality samples and rare taxa before downstream analysis
-  - Consider your biological question and assumptions when choosing your ROIs
-- **Gene set scoring**:
-  - Use Seurat's AddModuleScore for relative comparisons
-  - Use GSVA when absolute scores are important
-  - Validate interesting patterns with individual gene expression
-- **Differential expression**:
-  - Use appropriate fold change thresholds based on your data type
-  - Check that both groups have sufficient cell numbers (>30 spots recommended)
-  - Validate top hits with spatial visualization and later comparison
-- **Statistical testing**:
-  - Use non-parametric tests for small sample sizes
-  - Consider biological significance, not just statistical significance
-
----
+A local installation accepts uploads up to 500 MB. To raise this, set
+`options(shiny.maxRequestSize = ...)` before launching. The hosted server
+accepts up to 150 MB.
+
+## 1. Load data (Visualization)
+
+Click **Start Analysis** on the home page, then open **Visualization** in the
+sidebar. Under **Data Source**, choose one of two input types:
+
+- **10x Visium Seurat object (.rds)**: a processed object with a spatial image,
+  spot coordinates and log-normalised expression. Upload it and click
+  **Load Seurat Object**. Two bundled datasets are available here:
+  **Default Data (CRC)**, a colorectal cancer section with 1,253 spots, and
+  **Case Study 1 (CRLM)**, a colorectal cancer liver metastasis with 3,721 spots.
+- **10x Visium Space Ranger output (.zip)**: the Space Ranger output folder,
+  unzipped files only (no `.gz`), containing the `.h5` matrix and the `spatial/`
+  folder, compressed as one `.zip`. Spots are filtered with the QC settings
+  (minimum genes, minimum counts, maximum % mitochondrial) and then normalised.
+  **Case Study 2 (OSCC)** is bundled in this format.
+
+Loading new data replaces the current analysis, including all ROIs.
+
+## 2. Explore the map
+
+Zoom with the scroll wheel or the **+/−** buttons, and drag to pan. **Spot Size**
+and **H&E Opacity** control how the spots sit over the tissue.
+
+Under **Feature Selection**, choose **Gene Expression** or **Metadata** to colour
+the spots, and pick a palette under **Color Scheme** (Grey to Red, Blue-White-Red
+or Rainbow). **Clear Map Overlay** removes any feature, score or cluster colouring.
+**Save view (PDF)** exports the current map.
+
+## 3. Draw regions and groups
+
+1. Click the pencil icon on the map and draw a region freehand. Smaller spots and
+   higher H&E opacity make the tissue easier to see while drawing.
+2. Name the region and click **Save region**. Repeat for each region you need.
+3. To analyse several ROIs together, select them, enter a group name and click
+   **Group**. A group is the union of its ROIs, and the ROIs stay available on
+   their own.
+4. Use **Show on map** with **Show ROIs on Map** to display a region.
+   **Transparent ROI Display** shows the tissue underneath, and
+   **Show ROI contours** draws a high-contrast outline.
+
+Every saved ROI or group can be used in each analysis panel. Comparisons can be
+ROI vs ROI, group vs group, ROI vs group, or a region vs the rest of the tissue.
+Grouping pools spots within one section. It does not create biological replicates.
+
+**Save and reload regions.** **Save ROI index (.csv)** writes the spot IDs of a
+region. **Load ROI index (.csv)** reads one back in a later session, and redraws
+its outline on the map. The file only needs a `spot_id` column, so regions
+selected in other tools can be imported the same way. **Save region (.rds)**
+exports the selected region as a Seurat object. The spot indices of the TLS
+regions used in the manuscript are in `inst/extdata/example_rois/`.
+
+## 4. Ligand–receptor colocalisation
+
+In **Visualization**, the **L-R Colocalization Score** section ranks
+ligand–receptor pairs within all spots, one ROI, or one group. Select the species
+and the databases to include (CellChat, KEGG, Guide to Pharmacology and
+Ramilowski, all selected by default), then click **Run LR Scoring**.
+
+For each gene, expression is smoothed over each spot and its 12 nearest
+neighbours with a Gaussian kernel. The **Gaussian bandwidth multiplier** sets how
+wide that kernel is. A pair's score at a spot is the geometric mean of its
+smoothed ligand and receptor expression. The table reports the mean of that score
+over the spots in the region. The databases only decide which pairs are scored.
+The scores come entirely from your data. Highly ranked pairs are candidates for
+local signalling, not evidence of it.
+
+## 5. Cell-type deconvolution
+
+The **Cell Type Deconvolution** section estimates the cell-type composition of
+each spot with RCTD (`spacexr`, full mode).
+
+1. Choose a reference. Two are built in: **CRC** (GSE132465), which matches
+   Default Data, and **CRLM** (GSE225857), which matches Case Study 1. Loading a
+   bundled dataset pre-selects its matching reference. The CRLM reference has no
+   hepatocytes, so it suits tumour and tumour-adjacent regions rather than normal
+   liver. Alternatively, upload your own single-cell Seurat object (.rds) with
+   raw counts and cell-type labels, either as identities or in a metadata column.
+2. Pick one or more regions under **Regions to deconvolve**, or **All spots**.
+3. Click **Estimate Cell Composition**.
+
+RCTD runs in a background process, so the rest of the app stays usable. Large
+regions take several minutes. Each region is fitted separately. To compare
+proportions strictly across regions, deconvolve **All spots** once and compare
+within that run. Proportions are relative to the cell types in the reference.
+A cell type missing from the reference is assigned to the ones that are there.
+Curated references for other cancer types are listed on the GitHub page.
+
+## 6. Gene set scoring (Gene Sets)
+
+Select the species first. Then load genes from one of three sources:
+
+- **Marker Signatures (CellMarker 2.0)**: immune, stromal, tissue and cancer
+  signatures. Click **Load Selected Signature**.
+- **Pathway Signatures (MSigDB Hallmark)**: click **Load Pathway Genes**.
+- Your own list, typed into **Gene Input** (one gene per line or comma-separated).
+
+The list can be edited after loading. Choose a **Method**:
+
+- **Mean expression**: the average expression of the genes.
+- **AddModuleScore (Seurat)**: the average minus that of matched control genes.
+- **GSVA (rank-based)**: the `GSVA` package score.
+
+Click **Calculate Score** to display the score on the map. **Save to gene set**
+keeps it under the given **Name**, so it can be used in the Compare panel.
+
+## 7. Clustering (Clusters)
+
+Choose **Cluster which spots**: all spots, an ROI, or a group. Set the
+**Resolution** (default 0.8) and the number of **PCs** (default 30), then click
+**Run Clustering**. The panel reports the number of clusters and spots per
+cluster, and shows a UMAP. **Show on Map** colours the spots by cluster. The UMAP
+and the cluster assignments can be downloaded.
+
+## 8. Differential expression (DEGs)
+
+Set **Side A** to an ROI or group, and **Side B** to another ROI or group or to
+**Rest of tissue**. Non-overlapping regions are recommended. If they overlap,
+shared spots are left out of both sides.
+
+Choose the **DE test** (Wilcoxon, t-test or logistic regression), the
+**|log2FC|** cut-off, the **Min. spot fraction** and the **Adjusted p (BH)**
+threshold, then click **Find DEGs**. Seurat's `FindMarkers` tests every gene that
+passes the spot-fraction filter, and p-values are adjusted with Benjamini–Hochberg
+across all tested genes. The fold-change cut-off is applied afterwards and does
+not change the adjusted p-values.
+
+The volcano plot shows all tested genes. The table, and the downloaded CSV,
+contain only the genes that pass both thresholds. Moran's I, computed over the
+whole section, shows which of those genes are spatially structured. A table of
+one region vs the rest of the tissue can be uploaded to the Multi-Sample panel.
+
+## 9. Comparisons (Compare)
+
+**Group vs Group** compares one feature between two regions. The feature can be a
+gene, a metadata column, a saved gene set, a Hallmark pathway or a cell-type
+signature. Choose **Side A** and **Side B** and a test (Wilcoxon or t-test), then
+click **Generate Plot**. The result is a violin plot with the p-value and the
+number of spots.
+
+**Feature vs Feature** compares two features within the same spots: all spots,
+an ROI, or a group. Choose the test, then click **Generate Plot**.
+
+## 10. Comparing ROIs across samples (Multi-Sample)
+
+This panel compares DEG tables rather than expression data, so ROIs from
+different sections or studies can be compared without integrating them. Each
+table should be one region vs the rest of its tissue. Tables from SpatialROI can
+be uploaded directly. Tables from other tools need a gene column (such as `gene`
+or `symbol`) and a log-fold-change column (such as `avg_log2FC`,
+`log2FoldChange` or `logFC`). **Load example tables** loads three TLS tables from
+the bundled datasets.
+
+1. **Upload DEG tables**: at least two. The summary shows each table's size and
+   the number of up- and down-regulated genes.
+2. **Compare ROI similarity**: for each pair of tables, over the genes reported in
+   both, the number of shared genes, the percentage that change in the same
+   direction, and the Spearman correlation of their log2 fold changes.
+3. **Compare differential expression patterns across ROIs**: a heatmap of genes
+   reported in every table. Half the rows are the strongest shared up-regulated
+   genes and half the strongest shared down-regulated genes. The table below it
+   lists every shared gene.
+4. **Compare pathway enrichment across ROIs**: Hallmark over-representation, run
+   separately for each table, with all Hallmark genes as the background.
+   Pathways enriched in the most ROIs come first. The species follows the setting
+   in the Gene Sets panel.
+
+These summaries are descriptive. Several ROIs from one patient are not
+independent replicates. Adding more tables usually reduces the number of genes
+shared by all of them.
 
 ## Troubleshooting
 
-### Common Issues and Solutions
+**An older Seurat object fails to load** with an error such as
+`invalid class "VisiumV1" object`. Update it and save it again:
 
-**Data loading fails:**
-
-- Ensure your files are in the correct format (.rds or .RData)
-- Verify that spatial coordinates are numeric
-- Try uploading files individually to identify the problematic file
-
-**Seurat object version mismatch error:**
-
-If you encounter an error like `Error: invalid class "VisiumV1" object: slots in class definition but not in object: "misc"`, this indicates a version mismatch between the Seurat version used to create your object and your current Seurat installation. To fix this:
-```r
-# Update your Seurat object
-old_obj <- readRDS("path/to/your_seurat.rds")
-new_obj <- UpdateSeuratObject(old_obj)
-saveRDS(new_obj, "path/to/your_seurat.rds")
+```{r eval=FALSE}
+obj <- UpdateSeuratObject(readRDS("path/to/your_seurat.rds"))
+saveRDS(obj, "path/to/your_seurat.rds")
 ```
 
-Then reload the updated file in SpatialROI.
+**A gene cannot be found.** Check the species setting and the gene symbol.
+The gene may also have been removed during preprocessing.
 
-**ROIs not appearing on map:**
+**Deconvolution reports few matched genes.** The reference and the spatial data
+must use the same species and gene symbols.
 
-- Increase spot size using the slider
-- Adjust H&E opacity to ensure spots are visible
-- Check that the coordinate system matches your image
-- Try refreshing the page and reloading data
+**The session was lost.** Uploaded data is kept only while the browser tab is
+open. Save ROI indices and results before closing the tab.
 
-**Analysis runs slowly:**
+## Scripted ROI selection
 
-- Reduce the number of features analyzed
-- Filter low-quality data more stringently
-- Close other programs to free up memory
+`draw_ROI()` opens a drawing map in the browser and returns the spot IDs of the region
+you draw. This is useful for scripted workflows:
 
-**Visualizations appear distorted:**
-
-- Reset zoom to home position
-- Adjust spot size and opacity
-- Check browser zoom level
-- Try a different browser
-
-**Can't find a specific gene:**
-
-- Check gene name spelling (mouse/human)
-- Verify the gene is present in your dataset
-- Some genes may be filtered during preprocessing
-- Confirm the species (human/mouse)
-
----
-
-## Getting Help
-
-If you encounter issues not covered in this vignette:
-
-Visit the SpatialROI GitHub repository for:
-
-- Detailed documentation
-- Example datasets
-- Issue reporting
-
----
+```{r eval=FALSE}
+spots <- draw_ROI(my_data, sample_name = "MyExperiment")
+roi   <- subset(my_data, cells = spots)
+```
 
 ## Citation
 
-If you use SpatialROI in your research, please cite:
-
-[Citation here]
-
----
-
-## Conclusion
-
-This vignette has walked you through all major features of SpatialROI, from data loading through analysis and export. The interactive nature of SpatialROI makes it a powerful tool for exploratory analysis of spatial transcriptomics data, allowing you to identify biologically relevant regions and understand spatial gene expression patterns.
-
-Happy analyzing!
+SpatialROI is described in a manuscript in preparation. Citation details will be
+added here on publication. Issues and questions can be posted on
+<https://github.com/myaol/SpatialROI>.
