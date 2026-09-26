@@ -13,5 +13,18 @@ and run that ROI versus Rest to regenerate the table.
 `CRC_TLS_41spots.csv` is also the 41-spot region used in the cross-tool output-concordance
 benchmark.
 
+## Case Study 1
+
+`case_study1/` holds the four regions used in Case Study 1 of the supplementary material.
+Load **Case Study 1 (CRLM)**, then import each file with **⬆ Load ROI index (.csv)**. The
+regions keep their names (ROI 1 to ROI 4).
+
+| file | spots |
+|---|---|
+| `case_study1/CaseStudy1_CRLM_ROI_1_spot_index.csv` | 90 |
+| `case_study1/CaseStudy1_CRLM_ROI_2_spot_index.csv` | 62 |
+| `case_study1/CaseStudy1_CRLM_ROI_3_spot_index.csv` | 65 |
+| `case_study1/CaseStudy1_CRLM_ROI_4_spot_index.csv` | 59 |
+
 Format: `sample`, `roi`, `spot_id`. Any file with a `spot_id` column will import, so
 regions defined in other software can be loaded the same way.

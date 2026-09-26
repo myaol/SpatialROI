@@ -132,6 +132,21 @@ upload:
 | Case Study 1 (CRLM) | colorectal cancer liver metastasis, 3,721 spots | Wu *et al.* 2022, OEP00001756 |
 | Case Study 2 (OSCC) | oral squamous cell carcinoma, raw Space Ranger output | Arora *et al.* 2023, GSE208253 |
 
+### Reproducing Case Study 1
+
+To follow Case Study 1 from the supplementary material step by step, load
+**Case Study 1 (CRLM)** and import the four regions from
+**[`datasets/roi_indices/case_study1/`](datasets/roi_indices/case_study1/)** with
+**Load ROI index (.csv)**. Each file keeps its region name, so the regions appear as
+ROI 1 to ROI 4, as in the manuscript.
+
+| ROI index | spots |
+|---|---|
+| `CaseStudy1_CRLM_ROI_1_spot_index.csv` | 90 |
+| `CaseStudy1_CRLM_ROI_2_spot_index.csv` | 62 |
+| `CaseStudy1_CRLM_ROI_3_spot_index.csv` | 65 |
+| `CaseStudy1_CRLM_ROI_4_spot_index.csv` | 59 |
+
 ### Reproducing the Multi-Sample example tables
 
 The Multi-Sample panel ships three ROI-versus-rest differential-expression
