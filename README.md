@@ -110,15 +110,6 @@ upload:
 - 💾 **Data Export** - Save and reload ROI spot indices, and download DEG results and Seurat subsets
 - 🖼️ **Figure Export** - Download UMAP, volcano, Moran, violin, and heatmap figures as PDFs
 
-### Selecting spots from R
-
-`draw_ROI()` opens only the ROI selector and returns the IDs of the selected spots:
-
-```r
-selected_spots <- draw_ROI(Seurat_object, sample_name = "MyExperiment")
-subset_data <- subset(Seurat_object, cells = selected_spots)
-```
-
 ---
 
 ## ROI Spot Indices for the Examples
@@ -146,16 +137,6 @@ To follow Case Study 1 from the supplementary material step by step:
 | [`CaseStudy1_CRLM_ROI_2_spot_index.csv`](datasets/roi_indices/case_study1/CaseStudy1_CRLM_ROI_2_spot_index.csv) | 62 |
 | [`CaseStudy1_CRLM_ROI_3_spot_index.csv`](datasets/roi_indices/case_study1/CaseStudy1_CRLM_ROI_3_spot_index.csv) | 65 |
 | [`CaseStudy1_CRLM_ROI_4_spot_index.csv`](datasets/roi_indices/case_study1/CaseStudy1_CRLM_ROI_4_spot_index.csv) | 59 |
-
-To download all four at once from R, into the current working directory:
-
-```r
-base <- "https://raw.githubusercontent.com/myaol/SpatialROI/main/datasets/roi_indices/case_study1/"
-for (i in 1:4) {
-  f <- sprintf("CaseStudy1_CRLM_ROI_%d_spot_index.csv", i)
-  download.file(paste0(base, f), f)
-}
-```
 
 ### Reproducing the Multi-Sample example tables
 
@@ -269,8 +250,8 @@ If you use SpatialROI in your research, please cite:
 
 ```bibtex
 @article{SpatialROI2026,
-  title = {SpatialROI: An Interactive R Shiny Package for Manual Region-Based Analysis of Spatial Transcriptomics Data},
-  author = {Lu, Mengyao and Qiu, Aodong and Lu, Xinghua and Xu, Min and Chen, Lujia},
+  title = {SpatialROI: An Interactive R Shiny Platform for Customized Region-Aware Spatial Transcriptomics Analysis},
+  author = {Lu, Mengyao and Qiu, Aodong and Xu, Min and Lu, Xinghua and Chen, Lujia},
   journal = {Bioinformatics Advances},
   year = {2026},
   note = {manuscript in submission},
