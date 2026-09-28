@@ -135,18 +135,34 @@ upload:
 
 ### Reproducing Case Study 1
 
-To follow Case Study 1 from the supplementary material step by step, load
-**Case Study 1 (CRLM)** and import the four regions from
-**[`datasets/roi_indices/case_study1/`](datasets/roi_indices/case_study1/)** with
-**Load ROI index (.csv)**. Each file keeps its region name, so the regions appear as
-ROI 1 to ROI 4, as in the manuscript.
+To follow Case Study 1 from the supplementary material step by step:
 
-| ROI index | spots |
+1. **Download the four ROI index files** below. They are kept in this repository
+   under [`datasets/roi_indices/case_study1/`](datasets/roi_indices/case_study1/)
+   and are not included in the installed package. Click a file name, then click
+   **Download raw file** at the top right of the file view.
+2. **Load the data.** In SpatialROI, load **Case Study 1 (CRLM)**, which is bundled
+   with the app.
+3. **Import the regions.** Import each file with **⬆ Load ROI index (.csv)** on the
+   map. Each file keeps its region name, so the regions appear as ROI 1 to ROI 4, as
+   in the manuscript.
+
+| ROI index (click, then Download raw file) | spots |
 |---|---|
-| `CaseStudy1_CRLM_ROI_1_spot_index.csv` | 90 |
-| `CaseStudy1_CRLM_ROI_2_spot_index.csv` | 62 |
-| `CaseStudy1_CRLM_ROI_3_spot_index.csv` | 65 |
-| `CaseStudy1_CRLM_ROI_4_spot_index.csv` | 59 |
+| [`CaseStudy1_CRLM_ROI_1_spot_index.csv`](datasets/roi_indices/case_study1/CaseStudy1_CRLM_ROI_1_spot_index.csv) | 90 |
+| [`CaseStudy1_CRLM_ROI_2_spot_index.csv`](datasets/roi_indices/case_study1/CaseStudy1_CRLM_ROI_2_spot_index.csv) | 62 |
+| [`CaseStudy1_CRLM_ROI_3_spot_index.csv`](datasets/roi_indices/case_study1/CaseStudy1_CRLM_ROI_3_spot_index.csv) | 65 |
+| [`CaseStudy1_CRLM_ROI_4_spot_index.csv`](datasets/roi_indices/case_study1/CaseStudy1_CRLM_ROI_4_spot_index.csv) | 59 |
+
+To download all four at once from R, into the current working directory:
+
+```r
+base <- "https://raw.githubusercontent.com/myaol/SpatialROI/main/datasets/roi_indices/case_study1/"
+for (i in 1:4) {
+  f <- sprintf("CaseStudy1_CRLM_ROI_%d_spot_index.csv", i)
+  download.file(paste0(base, f), f)
+}
+```
 
 ### Reproducing the Multi-Sample example tables
 
