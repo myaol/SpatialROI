@@ -2,7 +2,7 @@
 
 SpatialROI is designed to facilitate the ROI-specific exploration, visualization, and analysis of spatial transcriptomics data.
 
-**SpatialROI** is an interactive R package with a browser-based interface that enables spatial visualization and analysis directly from processed Seurat objects or SpaceRanger output. Users can interactively select regions of interest (ROI), visualize gene expression patterns, and perform downstream analyses such as cell-type signature scoring, clustering, and differential expression analysis. In addition to the GUI, SpatialROI also provides a set of modular functions for scripted workflows, enabling customized analyses. Usage examples for these functions are provided in the [Function Workflow Vignette](vignettes_functions.Rmd).
+**SpatialROI** is an interactive R package with a browser-based interface that enables spatial visualization and analysis directly from processed Seurat objects or Space Ranger output. Users can interactively select regions of interest (ROIs), visualize gene expression patterns, and perform downstream analyses such as cell-type signature scoring, clustering, and differential expression analysis.
 
 SpatialROI can be accessed via a public demo hosted by the University of Pittsburgh: [https://shiny.crc.pitt.edu/spatial_api/](https://shiny.crc.pitt.edu/spatial_api/).
 
@@ -38,73 +38,62 @@ run_spatial_selector("demo")
 ```r
 library(SpatialROI)
 Seurat_object <- readRDS("path/to/your_seurat.rds")
-# Update the object to current Seurat version
+# Only needed if the object was saved with an older Seurat version
 Seurat_object <- UpdateSeuratObject(Seurat_object)
 run_spatial_selector(Seurat_object, sample_name = "MyExperiment", show_image = TRUE)
 ```
 
-Or load data from the **Visualization** panel of the app, under **Data Source**:
+Data can also be loaded inside the app, as described below.
 
-- **10x Visium Seurat object (.rds)**: a processed object with a spatial image, spot
-  coordinates and log-normalised expression.
+### Supported input
+
+SpatialROI is designed and tested for standard **10x Genomics Visium** data. In the
+app, load data from the **Visualization** panel, under **Data Source**:
+
+- **10x Visium Seurat object (.rds)**: a processed object with a Visium spatial
+  image, tissue spot coordinates and log-normalized expression.
 - **10x Visium Space Ranger output (.zip)**: the Space Ranger output folder (filtered
   feature-barcode `.h5` plus the `spatial/` folder, with no `.gz` files), compressed as one
-  `.zip`. Spots are quality-filtered and log-normalised on load.
+  `.zip`. Spots are quality-filtered and log-normalized on load.
 
-### Supported input and size
+**Data compatibility.** Seurat can represent data from many spatial technologies,
+but representation in a Seurat object does not imply compatibility with SpatialROI:
+imaging-based platforms (Xenium, CosMx, MERSCOPE), Slide-seq, and Visium HD bin
+structures have different data structures and are not validated here. The app
+shows a warning when the uploaded data do not look like standard Visium (an
+imaging-based image type, or far more spots than a Visium section), and the
+results should then be interpreted with caution.
 
-- SpatialROI is designed and tested for **10x Genomics Visium**. A Seurat object
-  must retain a Visium spatial image and tissue coordinates. Raw input must be a
-  SpaceRanger output bundle containing the filtered feature-barcode matrix and
-  `spatial/` files.
-- **Other spatial transcriptomics platforms are not currently supported.** Seurat
-  can represent data from many spatial technologies, but representation in a
-  Seurat object does not imply compatibility with SpatialROI: imaging-based
-  platforms (Xenium, CosMx, MERSCOPE), Slide-seq, and Visium HD bin structures
-  have different data structures and are not validated here. The app shows a
-  warning when the uploaded data do not look like standard Visium (an
-  imaging-based image type, or far more spots than a Visium section), and the
-  results should then be interpreted with caution.
+### Upload size and memory
+
 - Uploads are limited to **150 MB on the public server** and **500 MB in a local
   installation** by default (adjustable, see [Upload limits](#upload-limits)).
   Use a local installation for large objects.
 - RDS files expand in memory. The 32-MB example requires approximately 430 MB after
   loading; memory requirements increase with spots, assays, and image size.
 
-### Bundled example dataset
+### Bundled example datasets
 
-The example is one human colorectal cancer 10x Visium tissue section from
-Valdeolivas et al. (2024), with **17,529 genes and 1,253 tissue spots**, an H&E
-image, SCT-normalized expression, and precomputed broad-cell-type proportions.
-The associated publication is [*npj Precision Oncology* 8, 7
-(2024)](https://doi.org/10.1038/s41698-023-00488-4).
+Three example datasets ship with SpatialROI and load from the interface without any
+upload:
 
----
-
-## ROI Selection Tool
-
-### Quick Spot Selection with `draw_ROI()`
-
-If you only need to select spots from a region of interest without launching the full analysis app:
-
-```r
-library(SpatialROI)
-
-# Load your Seurat object
-Seurat_object <- readRDS("path/to/your_seurat.rds")
-
-# Launch interactive ROI selector
-selected_spots <- draw_ROI(Seurat_object, sample_name = "MyExperiment")
-
-# The function returns a vector of spot IDs
-print(selected_spots)
-length(selected_spots)
-
-# Use the selected spots for downstream analysis
-subset_data <- subset(Seurat_object, cells = selected_spots)
-```
-
-This function supports multiple ROI selections and returns a vector of spot IDs, ideal for custom downstream workflows.
+- **Default Data (CRC)**: a human colorectal cancer 10x Visium section with
+  17,529 genes and 1,253 tissue spots, an H&E image, SCT-normalized expression and
+  precomputed broad cell-type proportions. Data:
+  [Zenodo](https://doi.org/10.5281/zenodo.7551712). Valdeolivas A *et al.*
+  Profiling the heterogeneity of colorectal cancer consensus molecular subtypes
+  using spatial transcriptomics. *npj Precis Oncol* 2024;8:10.
+  https://doi.org/10.1038/s41698-023-00488-4
+- **Case Study 1 (CRLM)**: a colorectal cancer liver metastasis section with 3,721
+  spots, provided as a preprocessed Seurat object. Data: NODE OEP00001756. Wu Y
+  *et al.* Spatiotemporal immune landscape of colorectal cancer liver metastasis
+  at single-cell level. *Cancer Discov* 2022;12(1):134–53.
+  https://doi.org/10.1158/2159-8290.CD-21-0316
+- **Case Study 2 (OSCC)**: an oral squamous cell carcinoma section, provided as raw
+  Space Ranger output. Data: GEO GSE208253. Arora R *et al.* Spatial
+  transcriptomics reveals distinct and conserved tumor core and edge architectures
+  that predict survival and targeted therapy response. *Nat Commun*
+  2023;14:5029. https://doi.org/10.1038/s41467-023-40271-4
 
 ---
 
@@ -112,27 +101,30 @@ This function supports multiple ROI selections and returns a vector of spot IDs,
 
 - 🗺️ **ROI Drawing** - Freehand drawing tools to select custom regions of interest
 - 🧬 **Gene Set and Pathway Visualization** - Spatially map custom gene lists, cell-type signatures, or pathway gene sets
-- 🔗 **Ligand-Receptor Colocalization** - ROI-specific, Gaussian-smoothed ligand-receptor score analysis
-- 🧩 **Cell Type Deconvolution** - RCTD-based cell type deconvolution within user-defined ROIs
-- 📊 **Spot Clustering** - Identify spatial domains using graph-based clustering methods
-- 📈 **DEG Analysis** - Find differentially expressed genes between selected groups or clusters
-- ⚖️ **Feature Comparison** - Statistical comparison plots with parametric/non-parametric tests
-- 🧩 **Multi-Sample Comparison** - Compare ROI-versus-rest DEG tables across sections or studies without pooling expression data
+- 🔗 **Ligand–Receptor Colocalization** - ROI-specific, Gaussian-smoothed ligand–receptor score analysis
+- 🧩 **Cell-Type Deconvolution** - RCTD-based cell-type deconvolution within user-defined ROIs
+- 📊 **Spot Clustering** - Identify spatial domains with Louvain clustering
+- 📈 **DEG Analysis** - Find differentially expressed genes between ROIs or groups, or between a region and the rest of the tissue
+- ⚖️ **Feature Comparison** - Compare genes, scores or regions with statistical tests and violin plots
+- 🧩 **Multi-Sample Comparison** - Compare ROI-versus-rest DEG tables across sections or studies
 - 💾 **Data Export** - Save and reload ROI spot indices, and download DEG results and Seurat subsets
 - 🖼️ **Figure Export** - Download UMAP, volcano, Moran, violin, and heatmap figures as PDFs
 
+### Selecting spots from R
+
+`draw_ROI()` opens only the ROI selector and returns the IDs of the selected spots:
+
+```r
+selected_spots <- draw_ROI(Seurat_object, sample_name = "MyExperiment")
+subset_data <- subset(Seurat_object, cells = selected_spots)
+```
+
 ---
 
-## Example Data and ROI Spot Indices
+## ROI Spot Indices for the Examples
 
-Three datasets ship inside the package and load from the interface without any
-upload:
-
-| button | dataset | source |
-|---|---|---|
-| Default Data (CRC) | colorectal cancer Visium, 1,253 spots | Valdeolivas *et al.* 2024 |
-| Case Study 1 (CRLM) | colorectal cancer liver metastasis, 3,721 spots | Wu *et al.* 2022, OEP00001756 |
-| Case Study 2 (OSCC) | oral squamous cell carcinoma, raw Space Ranger output | Arora *et al.* 2023, GSE208253 |
+The three bundled datasets are described in
+[Bundled example datasets](#bundled-example-datasets).
 
 ### Reproducing Case Study 1
 
