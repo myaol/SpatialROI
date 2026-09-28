@@ -61,9 +61,10 @@ Or load data from the **Visualization** panel of the app, under **Data Source**:
   can represent data from many spatial technologies, but representation in a
   Seurat object does not imply compatibility with SpatialROI: imaging-based
   platforms (Xenium, CosMx, MERSCOPE), Slide-seq, and Visium HD bin structures
-  have different data structures and are not validated here. The app stops with
-  an explicit message when the uploaded spatial image is not recognized as
-  Visium.
+  have different data structures and are not validated here. The app shows a
+  warning when the uploaded data do not look like standard Visium (an
+  imaging-based image type, or far more spots than a Visium section), and the
+  results should then be interpreted with caution.
 - Uploads are limited to **150 MB on the public server** and **500 MB in a local
   installation** by default (adjustable, see [Upload limits](#upload-limits)).
   Use a local installation for large objects.
