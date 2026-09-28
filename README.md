@@ -85,7 +85,7 @@ upload:
   using spatial transcriptomics. *npj Precis Oncol* 2024;8:10.
   https://doi.org/10.1038/s41698-023-00488-4
 - **Case Study 1 (CRLM)**: a colorectal cancer liver metastasis section with 3,721
-  spots, provided as a preprocessed Seurat object. Data: NODE OEP00001756. Wu Y
+  spots, provided as a preprocessed Seurat object. Data: NODE [OEP001756](https://www.biosino.org/node/project/detail/OEP001756). Wu Y
   *et al.* Spatiotemporal immune landscape of colorectal cancer liver metastasis
   at single-cell level. *Cancer Discov* 2022;12(1):134–53.
   https://doi.org/10.1158/2159-8290.CD-21-0316
