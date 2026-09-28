@@ -65,7 +65,8 @@ Or load data from the **Visualization** panel of the app, under **Data Source**:
   an explicit message when the uploaded spatial image is not recognized as
   Visium.
 - Uploads are limited to **150 MB on the public server** and **500 MB in a local
-  installation**. Use a local installation for large objects.
+  installation** by default (adjustable, see [Upload limits](#upload-limits)).
+  Use a local installation for large objects.
 - RDS files expand in memory. The 32-MB example requires approximately 430 MB after
   loading; memory requirements increase with spots, assays, and image size.
 
@@ -170,14 +171,20 @@ carries a `roi` column.
 
 ### Upload limits
 
-Uploads are limited to 150 MB on the public server and 500 MB in a local
-installation. A Seurat object needs roughly three times its file size in memory
-once loaded, so large sections are better analysed locally. The local limit can
-be raised before launching:
+Uploads are limited to 150 MB on the public server and 500 MB by default in a
+local installation. A Seurat object needs roughly three times its file size in
+memory once loaded, so large sections are better analysed locally.
+
+In a local installation the limit can be raised or lowered. Set
+`shiny.maxRequestSize` (in bytes) in R before launching the app:
 
 ```r
-options(shiny.maxRequestSize = 2 * 1024^3)   # 2 GB
+options(shiny.maxRequestSize = 2 * 1024^3)   # 2 GB; e.g. 100 * 1024^2 for 100 MB
+SpatialROI::run_SpatialROI()
 ```
+
+The same setting applies when launching with `run_spatial_selector()`. The
+150 MB limit on the public server is set by the server and cannot be changed.
 
 ## Reference Datasets
 

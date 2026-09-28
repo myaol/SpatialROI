@@ -8,7 +8,9 @@ library(RColorBrewer)
 library(Seurat)
 library(SpatialROI)
 
-options(shiny.maxRequestSize = 500 * 1024^2)
+# Only a default: a limit the user set before run_SpatialROI() is kept.
+if (is.null(getOption("shiny.maxRequestSize")))
+  options(shiny.maxRequestSize = 500 * 1024^2)
 data_path <- getOption("SpatialROI.data_path", default = NULL)
 
 if (!is.null(data_path) && file.exists(data_path)) {
