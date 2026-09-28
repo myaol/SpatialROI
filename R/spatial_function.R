@@ -1140,7 +1140,12 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                           tags$div(style = "font-size: 14px; color: #555; line-height: 1.5;", "Use ", tags$strong("Save ROI index (.csv)"), " to reload your regions in a later session, and ", tags$strong("Save region (.rds)"), " to export the region as a Seurat object. Tables and figures can be downloaded from each panel. ROI-vs-rest DEG tables can be uploaded to ", tags$strong("🧩 Multi-Sample", .noWS = "after"), " to compare ROIs across samples.")
                                         )
                                       )
-                                    )
+                                    ),
+
+                                    tags$div(style = "margin-top: 18px; padding-top: 12px; border-top: 1px solid #eee; font-size: 14px; color: #555;",
+                                      "▶ ", tags$strong("New to SpatialROI?"), " Watch the ",
+                                      tags$a("video tutorial", href = "https://youtu.be/ob9SSeWMlqA", target = "_blank"),
+                                      " (18 min).")
                                   ),
 
                                   # Tips - bullet list style
@@ -1153,7 +1158,9 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                       tags$li(tags$strong("Clustering:"), " Start with the default resolution (0.8) and increase it for finer subgroup identification."),
                                       tags$li(tags$strong("Export:"), " Export selected ROIs as Seurat subsets for reuse in SpatialROI or downstream analysis in external tools."),
                                       tags$li(tags$strong("Source code:"), " Local installation, example data and source code are available at ",
-                                              tags$a("github.com/myaol/SpatialROI", href = "https://github.com/myaol/SpatialROI", target = "_blank", .noWS = "after"), ".")
+                                              tags$a("github.com/myaol/SpatialROI", href = "https://github.com/myaol/SpatialROI", target = "_blank", .noWS = "after"), "."),
+                                      tags$li(tags$strong("Reference datasets:"), " Curated RCTD references for other cancer types and mouse brain are available on ",
+                                              tags$a("Zenodo", href = "https://doi.org/10.5281/zenodo.22759947", target = "_blank", .noWS = "after"), ".")
                                     )
                                   ),
 
@@ -1161,7 +1168,7 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                   tags$div(style = "background: white; border-radius: 12px; padding: 24px 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 20px;",
                                     tags$h2(style = "color: #0072B5; font-size: 22px; margin: 0 0 15px 0; padding-bottom: 8px; border-bottom: 2px solid #E18727;", "\u26a0\ufe0f Limitations"),
                                     tags$ul(style = "font-size: 14px; line-height: 1.9; color: #333; padding-left: 20px; margin: 0;",
-                                      tags$li(tags$strong("Upload size:"), " Uploads are limited to 150 MB on the public server. A local installation from GitHub allows up to 500 MB by default, and the limit can be raised before launching in codes with options(shiny.maxRequestSize = ...)."),
+                                      tags$li(tags$strong("Upload size:"), " Uploads are limited to 150 MB on the public server. A local installation from GitHub allows up to 500 MB by default. To change this, run ", tags$code("options(shiny.maxRequestSize = ...)"), " in R before launching the app."),
                                       tags$li(tags$strong("Shared resources:"), " The public server is shared by all users. When many people use it at the same time, the app can become slow. If this happens, refresh the page or try again later. Computationally intensive steps, especially cell-type deconvolution on a large region, can take several minutes."),
                                       tags$li(tags$strong("Session lifetime:"), " Uploaded data is kept only while your browser tab is open and is cleared when you close it. To pick up your analysis later, save your regions with ", tags$strong("Save ROI index (.csv)"), " or ", tags$strong("Save region (.rds)"), " first. You can reload the ROI index next time with ", tags$strong("Load ROI index", .noWS = "after"), ".")
                                     )
@@ -1432,8 +1439,8 @@ tags$div(style = "background:white; padding:8px 12px; border-radius:10px; box-sh
                                         tags$p(style = "font-size: 11px; color: #7f8c8d; margin: 4px 0 0 0;",
                                               "Built for human colorectal cancer liver metastasis. It matches Case Study 1 (CRLM).")),
                                       tags$p(style = "font-size: 11px; color: #7f8c8d; margin-top: 4px;",
-                                            "Other tissues or species need a matched reference. Curated references for other cancer types are available on ",
-                                            tags$a("GitHub", href = "https://github.com/myaol/SpatialROI", target = "_blank", .noWS = "after"), "."),
+                                            "Other tissues or species need a matched reference. Curated references for other cancer types and mouse brain are available on ",
+                                            tags$a("Zenodo", href = "https://doi.org/10.5281/zenodo.22759947", target = "_blank", .noWS = "after"), "."),
 
                                       actionButton("load_builtin_ref", "Load Built-in Reference",
                                                   class = "btn btn-info btn-block",

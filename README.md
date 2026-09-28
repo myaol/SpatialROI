@@ -192,9 +192,9 @@ Two RCTD references are built into SpatialROI and can be selected in the deconvo
 panel: colorectal cancer (CRC, from GSE132465) and colorectal cancer liver metastasis
 (CRLM, from GSE225857). Curated references for lung adenocarcinoma, lung squamous cell
 carcinoma, renal cell carcinoma, breast cancer, hepatocellular carcinoma, oral squamous
-cell carcinoma, CRLM and mouse brain are hosted on Zenodo:
+cell carcinoma and mouse brain are hosted on Zenodo:
 
-DOI: https://doi.org/10.5281/zenodo.20554051
+DOI: https://doi.org/10.5281/zenodo.22759947
 
 These datasets can be downloaded separately and supplied to SpatialROI for RCTD-based cell-type deconvolution.
 Uploaded Seurat references must contain original RNA counts and cell-type labels
@@ -207,6 +207,7 @@ or `RNA` raw-count assay.
 ## Documentation
 
 📚 **Detailed tutorials and examples:**
+- [Video tutorial](https://youtu.be/ob9SSeWMlqA) - 18-minute walkthrough of the app
 - [User Guide Vignette](vignettes.Rmd) - GUI Step-by-step walkthrough
 - [Function Workflow Vignette](vignettes_functions.Rmd) - Scripted workflow
 - [Manuscript](https://academic.oup.com/bioinformaticsadvances) - Lu et al. 2026, *Bioinformatics Advances* (in submission)
